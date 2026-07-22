@@ -52,3 +52,6 @@ desktop.ini
 
 # ============ TypeScript 增量编译缓存 ============
 *.tsbuildinfo
+
+# ============ WorkBuddy 工作数据 ============
+.workbuddy/
