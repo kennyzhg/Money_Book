@@ -1,17 +1,56 @@
 import type { Request, Response } from 'express';
-import type { TransactionInput, TransactionQuery, TransactionType } from '../../shared/types.js';
+import type {
+  TransactionInput,
+  TransactionQuery,
+  TransactionType,
+  PaginatedTransactions,
+} from '../../shared/types.js';
 import { transactionService } from '../services/transactionService.js';
 import { ValidationError, NotFoundError } from '../utils/errors.js';
 import { sendOk, sendFail } from '../utils/response.js';
 
-/** GET /api/v1/transactions?month=&type=&paymentMethod=&category= */
+/**
+ * 从 query string 提取整型数值；非法或缺失返回 undefined
+ */
+function parsePositiveInt(v: unknown): number | undefined {
+  if (typeof v !== 'string' && typeof v !== 'number') return undefined;
+  const n = typeof v === 'string' ? parseInt(v, 10) : v;
+  if (!Number.isFinite(n) || n <= 0) return undefined;
+  return Math.floor(n);
+}
+
+/**
+ * GET /api/v1/transactions
+ *
+ * 支持参数：
+ *  - month (YYYY-MM)：按月份过滤；优先于 year
+ *  - year  (YYYY)：按整年过滤（month 缺省时生效）
+ *  - type / paymentMethod / category：过滤
+ *  - page / pageSize：分页参数。**若提供其中任意一个，则返回 PaginatedTransactions；
+ *    若两者都缺失，则返回 Transaction[]（保持向后兼容，供 Dashboard / 统计调用方使用）**
+ */
 export function listTransactions(req: Request, res: Response): void {
+  const page = parsePositiveInt(req.query.page);
+  const pageSize = parsePositiveInt(req.query.pageSize);
+
   const query: TransactionQuery = {
     month: typeof req.query.month === 'string' ? req.query.month : undefined,
+    year: typeof req.query.year === 'string' ? req.query.year : undefined,
     type: (req.query.type as TransactionType | undefined) ?? undefined,
-    paymentMethod: typeof req.query.paymentMethod === 'string' ? req.query.paymentMethod : undefined,
+    paymentMethod:
+      typeof req.query.paymentMethod === 'string' ? req.query.paymentMethod : undefined,
     category: typeof req.query.category === 'string' ? req.query.category : undefined,
+    page,
+    pageSize,
   };
+
+  // 分页模式：只要传了 page 或 pageSize 之一就走分页路径
+  if (page !== undefined || pageSize !== undefined) {
+    const data: PaginatedTransactions = transactionService.listPaginated(query);
+    sendOk(res, data);
+    return;
+  }
+  // 非分页模式：返回数组（向后兼容）
   const data = transactionService.list(query);
   sendOk(res, data);
 }

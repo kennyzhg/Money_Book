@@ -3,11 +3,15 @@ import type {
   TransactionInput,
   TransactionQuery,
   TransactionType,
+  PaginatedTransactions,
 } from '../../shared/types.js';
 import { transactionRepository } from '../repositories/transactionRepository.js';
 import { configRepository } from '../repositories/configRepository.js';
 import { round2 } from '../utils/math.js';
 import { ValidationError, NotFoundError } from '../utils/errors.js';
+
+/** 默认每页条数（>40 条触发分页时使用） */
+const DEFAULT_PAGE_SIZE = 40;
 
 /** 合法分类名集合（动态读取，反映管理员最新修改） */
 function getValidCategoryNames(type?: TransactionType): Set<string> {
@@ -95,8 +99,27 @@ function checkRequiredFields(input: Partial<TransactionInput>): string | null {
 }
 
 class TransactionService {
+  /** 不分页的列表查询（向后兼容，Dashboard / 统计等调用方使用） */
   list(query: TransactionQuery): Transaction[] {
     return transactionRepository.list(query);
+  }
+
+  /**
+   * 分页列表查询：返回 { items, total, page, pageSize }
+   *
+   * 入参归一化：
+   *  - page 默认 1，最小 1
+   *  - pageSize 默认 40，最小 1，最大 200（防止恶意大页）
+   *  - month 优先于 year（同时提供时忽略 year）
+   */
+  listPaginated(query: TransactionQuery): PaginatedTransactions {
+    const page = Math.max(1, Math.floor(query.page ?? 1));
+    const pageSize = Math.min(200, Math.max(1, Math.floor(query.pageSize ?? DEFAULT_PAGE_SIZE)));
+
+    const items = transactionRepository.list({ ...query, page, pageSize });
+    const total = transactionRepository.count({ ...query, page: undefined, pageSize: undefined });
+
+    return { items, total, page, pageSize };
   }
 
   getById(id: string): Transaction | undefined {

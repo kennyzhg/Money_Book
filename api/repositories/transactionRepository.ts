@@ -38,15 +38,28 @@ function rowToTransaction(row: TxRow): Transaction {
  * - 数据持久化在 data/money.db，重启服务数据保留
  */
 class TransactionRepository {
-  /** 查询列表，支持 month / type / paymentMethod / category 过滤 */
-  list(query: TransactionQuery = {}): Transaction[] {
+  /**
+   * 构造 WHERE 子句与参数对象（month / year / type / paymentMethod / category）
+   *
+   * 过滤优先级：month 优先于 year；若同时提供，year 被忽略。
+   */
+  private buildFilter(query: TransactionQuery): {
+    whereClause: string;
+    params: Record<string, unknown>;
+  } {
     const conditions: string[] = [];
     const params: Record<string, unknown> = {};
 
     if (query.month) {
+      // month 形如 "2026-07"，date 形如 "2026-07-15"，前缀匹配
       conditions.push('date LIKE :month');
       params.month = `${query.month}%`;
+    } else if (query.year) {
+      // year 形如 "2026"，匹配 date 的前 4 位
+      conditions.push('date LIKE :year');
+      params.year = `${query.year}%`;
     }
+
     if (query.type) {
       conditions.push('type = :type');
       params.type = query.type;
@@ -61,13 +74,42 @@ class TransactionRepository {
     }
 
     const whereClause = conditions.length ? `WHERE ${conditions.join(' AND ')}` : '';
+    return { whereClause, params };
+  }
+
+  /**
+   * 查询列表，支持 month / year / type / paymentMethod / category 过滤 + 分页
+   *
+   * 分页参数（page / pageSize）由 service 层归一化后传入；若两者都不提供，
+   * 则返回全部匹配记录（保持向后兼容）。
+   */
+  list(query: TransactionQuery = {}): Transaction[] {
+    const { whereClause, params } = this.buildFilter(query);
+
+    let pagination = '';
+    if (query.page !== undefined && query.pageSize !== undefined) {
+      const offset = Math.max(0, (query.page - 1) * query.pageSize);
+      pagination = `LIMIT ${query.pageSize} OFFSET ${offset}`;
+    }
+
     const rows = db
       .prepare(
-        `SELECT * FROM transactions ${whereClause} ORDER BY date DESC, created_at DESC`,
+        `SELECT * FROM transactions ${whereClause} ORDER BY date DESC, created_at DESC ${pagination}`,
       )
       .all(params) as TxRow[];
 
     return rows.map(rowToTransaction);
+  }
+
+  /**
+   * 统计满足筛选条件的总记录数（用于分页计算）
+   */
+  count(query: TransactionQuery = {}): number {
+    const { whereClause, params } = this.buildFilter(query);
+    const row = db
+      .prepare(`SELECT COUNT(*) AS n FROM transactions ${whereClause}`)
+      .get(params) as { n: number };
+    return row.n;
   }
 
   /** 按 id 查找单条 */

@@ -32,14 +32,32 @@ export type TransactionInput = Omit<Transaction, 'id' | 'createdAt' | 'updatedAt
 
 /** 列表查询参数 */
 export interface TransactionQuery {
-  /** 月份 YYYY-MM */
+  /** 月份 YYYY-MM（优先级高于 year；若同时提供 month 和 year，仅按 month 过滤） */
   month?: string;
+  /** 年份 YYYY（当不提供 month 时按整年过滤） */
+  year?: string;
   /** 类型过滤 */
   type?: TransactionType;
   /** 支付方式过滤 */
   paymentMethod?: string;
   /** 分类过滤（可选，扩展用） */
   category?: string;
+  /** 页码（从 1 开始，默认 1） */
+  page?: number;
+  /** 每页条数（默认 40） */
+  pageSize?: number;
+}
+
+/** 分页返回结构（list 接口统一使用） */
+export interface PaginatedTransactions {
+  /** 当前页的记录 */
+  items: Transaction[];
+  /** 满足筛选条件的总记录数 */
+  total: number;
+  /** 当前页码（从 1 开始） */
+  page: number;
+  /** 每页条数 */
+  pageSize: number;
 }
 
 /** 带图标的配置项 */

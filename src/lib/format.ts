@@ -24,10 +24,33 @@ export function currentMonth(): string {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
 }
 
+/** 当前年份 YYYY */
+export function currentYear(): string {
+  return String(new Date().getFullYear());
+}
+
 /** 将 YYYY-MM 月份格式化为 "2026年7月" */
 export function formatMonthLabel(month: string): string {
   const [y, m] = month.split('-');
   return `${y}年${Number(m)}月`;
+}
+
+/** 将 YYYY 年份格式化为 "2026年" */
+export function formatYearLabel(year: string | number): string {
+  return `${year}年`;
+}
+
+/**
+ * 最近 count 年的年份列表（YYYY 字符串），按降序排列（当前年在最前）。
+ * @param count 年数，默认 5
+ */
+export function getRecentYears(count = 5): string[] {
+  const arr: string[] = [];
+  const nowYear = new Date().getFullYear();
+  for (let i = 0; i < count; i++) {
+    arr.push(String(nowYear - i));
+  }
+  return arr;
 }
 
 /** 今日日期 YYYY-MM-DD */

@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import type { Transaction, TransactionType } from '@shared/types';
 import {
-  fetchTransactions,
+  fetchTransactionsPaginated,
   createTransaction,
   updateTransaction,
 } from '@/api/transactions';
@@ -9,7 +9,13 @@ import {
   selectPaymentMethods,
   useConfigStore,
 } from '@/store/configStore';
-import { currentMonth, formatCurrency, formatMonthLabel, getRecentMonths } from '@/lib/format';
+import {
+  currentYear,
+  formatCurrency,
+  formatMonthLabel,
+  formatYearLabel,
+  getRecentYears,
+} from '@/lib/format';
 import { cn } from '@/lib/utils';
 import { useIsMobile } from '@/lib/useIsMobile';
 import { useDeleteTransaction } from '@/lib/useDeleteTransaction';
@@ -25,10 +31,14 @@ import {
 } from 'lucide-react';
 import PageHeader from '@/components/PageHeader';
 import Select from '@/components/Select';
+import Pagination from '@/components/Pagination';
 import TransactionFormModal from '@/components/TransactionFormModal';
 import ImportTransactionsModal from '@/components/ImportTransactionsModal';
 import CategoryIcon from '@/components/CategoryIcon';
 import { getIcon } from '@/lib/icons';
+
+/** 每页条数（与产品需求对齐：>40 条触发分页，每页 40 条） */
+const PAGE_SIZE = 40;
 
 export default function Transactions() {
   const config = useConfigStore((s) => s.config);
@@ -36,11 +46,16 @@ export default function Transactions() {
   const paymentMethods = useMemo(() => selectPaymentMethods(config), [config]);
   const isMobile = useIsMobile();
 
-  const [month, setMonth] = useState<string>(currentMonth());
+  // 年份筛选：默认当前年
+  const [year, setYear] = useState<string>(currentYear());
+  // 月份筛选：默认空（"全部"）。空字符串 = 全年；非空 = 指定月份
+  const [month, setMonth] = useState<string>('');
   const [type, setType] = useState<'' | TransactionType>('');
   const [paymentMethod, setPaymentMethod] = useState<string>('');
 
   const [list, setList] = useState<Transaction[]>([]);
+  const [total, setTotal] = useState(0);
+  const [page, setPage] = useState(1);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -58,12 +73,19 @@ export default function Transactions() {
   const reload = () => {
     setLoading(true);
     setError(null);
-    fetchTransactions({
+    fetchTransactionsPaginated({
+      // month 优先：若设置了 month，后端会忽略 year（行为正确）
+      year,
       month: month || undefined,
       type: type || undefined,
       paymentMethod: paymentMethod || undefined,
+      page,
+      pageSize: PAGE_SIZE,
     })
-      .then(setList)
+      .then((res) => {
+        setList(res.items);
+        setTotal(res.total);
+      })
       .catch((e) => setError(e instanceof Error ? e.message : '加载失败'))
       .finally(() => setLoading(false));
   };
@@ -71,10 +93,18 @@ export default function Transactions() {
   useEffect(() => {
     reload();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [month, type, paymentMethod]);
+  }, [year, month, type, paymentMethod, page]);
+
+  // 筛选条件（year/month/type/paymentMethod）变化时重置到第一页
+  useEffect(() => {
+    setPage(1);
+  }, [year, month, type, paymentMethod]);
 
   const { deletingId, remove: handleDelete } = useDeleteTransaction({
-    onSuccess: (id) => setList((prev) => prev.filter((t) => t.id !== id)),
+    onSuccess: (id) => {
+      setList((prev) => prev.filter((t) => t.id !== id));
+      setTotal((prev) => Math.max(0, prev - 1));
+    },
     onError: (msg) => setError(msg),
   });
 
@@ -87,9 +117,20 @@ export default function Transactions() {
     setModalOpen(true);
   };
 
-  // 月份选项：基于当前月往前 12 个月
-  const monthOptions = useMemo(() => getRecentMonths(12), []);
+  // 年份选项：最近 6 年（当前年往前）
+  const yearOptions = useMemo(() => getRecentYears(6), []);
+  // 月份选项：1-12 月（固定），用户配合年份使用
+  const monthOptions = useMemo(() => {
+    const arr: string[] = [];
+    for (let m = 1; m <= 12; m++) {
+      arr.push(`${year}-${String(m).padStart(2, '0')}`);
+    }
+    return arr;
+  }, [year]);
 
+  // 注意：金额汇总应基于"全部匹配记录"，而非当前页
+  // 由于分页后只拿到当前页 40 条，无法在客户端精确汇总全年/全月
+  // 解决方案：这里展示"当前页汇总"，并加文案明确（避免数据误导）
   const { totalIncome, totalExpense } = list.reduce(
     (acc, t) => {
       if (t.type === 'income') acc.totalIncome += t.amount;
@@ -107,16 +148,20 @@ export default function Transactions() {
 
   // 移动端：筛选摘要文案
   const filterSummary = [
-    month && formatMonthLabel(month),
+    month ? formatMonthLabel(month) : formatYearLabel(year),
     type === 'expense' ? '支出' : type === 'income' ? '收入' : '',
     paymentMethod,
   ].filter(Boolean).join(' · ');
+
+  const showPagination = total > PAGE_SIZE;
+  // 空状态文案区分：当前页空 vs 整体无数据
+  const isEmpty = !loading && list.length === 0;
 
   return (
     <div>
       <PageHeader
         title="全部账单"
-        subtitle={`共 ${list.length} 条记录`}
+        subtitle={`共 ${total} 条记录${total > PAGE_SIZE ? ` · 第 ${page}/${Math.ceil(total / PAGE_SIZE)} 页` : ''}`}
         actions={
           <div className="flex items-center gap-2">
             <button
@@ -144,20 +189,21 @@ export default function Transactions() {
             onClick={() => setFilterOpen(true)}
             className={cn(
               'flex w-full items-center justify-between rounded-2xl bg-white p-3.5 shadow-sm ring-1 transition-colors',
-              hasFilter ? 'ring-blue-200' : 'ring-slate-100',
+              hasFilter || month ? 'ring-blue-200' : 'ring-slate-100',
             )}
           >
             <span className="flex items-center gap-2 text-sm text-slate-700">
-              <Filter size={15} className={hasFilter ? 'text-blue-600' : 'text-slate-400'} />
+              <Filter size={15} className={hasFilter || month ? 'text-blue-600' : 'text-slate-400'} />
               <span className="truncate">{filterSummary || '全部记录（点击筛选）'}</span>
             </span>
             <span className="flex items-center gap-2">
-              {hasFilter && (
+              {(hasFilter || month) && (
                 <span
                   role="button"
                   tabIndex={0}
                   onClick={(e) => {
                     e.stopPropagation();
+                    setMonth('');
                     resetFilter();
                   }}
                   className="rounded-full bg-slate-100 px-2 py-0.5 text-xs text-slate-500"
@@ -172,8 +218,20 @@ export default function Transactions() {
       ) : (
         <div className="mb-5 flex flex-wrap items-center gap-3 rounded-2xl bg-white p-4 shadow-sm ring-1 ring-slate-100">
           <div className="flex items-center gap-2">
+            <span className="text-xs text-slate-500">年份</span>
+            <Select value={year} onChange={setYear} className="w-28">
+              {yearOptions.map((y) => (
+                <option key={y} value={y}>
+                  {formatYearLabel(y)}
+                </option>
+              ))}
+            </Select>
+          </div>
+
+          <div className="flex items-center gap-2">
             <span className="text-xs text-slate-500">月份</span>
             <Select value={month} onChange={setMonth} className="w-36">
+              <option value="">全年</option>
               {monthOptions.map((m) => (
                 <option key={m} value={m}>
                   {formatMonthLabel(m)}
@@ -247,6 +305,13 @@ export default function Transactions() {
         </div>
       )}
 
+      {/* 顶部小提示：分页时金额汇总仅基于当前页 */}
+      {showPagination && !isMobile && (
+        <p className="mb-2 text-xs text-slate-400">
+          * 数据较多已开启分页，顶部金额仅汇总当前页 {list.length} 条；如需完整统计请缩小筛选范围。
+        </p>
+      )}
+
       {error && (
         <div className="mb-4 rounded-xl bg-rose-50 px-4 py-3 text-sm text-rose-600">{error}</div>
       )}
@@ -257,7 +322,7 @@ export default function Transactions() {
           <div className="flex h-64 items-center justify-center text-slate-400">
             <Loader2 className="animate-spin" />
           </div>
-        ) : list.length === 0 ? (
+        ) : isEmpty ? (
           <div className="flex h-64 flex-col items-center justify-center gap-2 text-slate-400">
             <Inbox size={36} className="text-slate-300" />
             <span className="text-sm">当前筛选条件下暂无记录</span>
@@ -357,6 +422,17 @@ export default function Transactions() {
             </table>
           </div>
         )}
+
+        {/* 分页：仅当总条数 > 每页条数时显示 */}
+        {showPagination && (
+          <Pagination
+            page={page}
+            pageSize={PAGE_SIZE}
+            total={total}
+            onChange={setPage}
+            className="border-t border-slate-100"
+          />
+        )}
       </div>
 
       <p className="mt-3 hidden text-xs text-slate-400 md:block">
@@ -388,6 +464,8 @@ export default function Transactions() {
         <MobileFilterSheet
           open={filterOpen}
           onClose={() => setFilterOpen(false)}
+          year={year}
+          onYearChange={setYear}
           month={month}
           onMonthChange={setMonth}
           type={type}
@@ -395,9 +473,13 @@ export default function Transactions() {
           paymentMethod={paymentMethod}
           onPaymentMethodChange={setPaymentMethod}
           paymentMethods={paymentMethods}
+          yearOptions={yearOptions}
           monthOptions={monthOptions}
-          hasFilter={hasFilter}
-          onReset={resetFilter}
+          hasFilter={hasFilter || Boolean(month)}
+          onReset={() => {
+            setMonth('');
+            resetFilter();
+          }}
         />
       )}
     </div>
@@ -525,6 +607,8 @@ function MobileTransactionList({
 interface MobileFilterSheetProps {
   open: boolean;
   onClose: () => void;
+  year: string;
+  onYearChange: (v: string) => void;
   month: string;
   onMonthChange: (v: string) => void;
   type: '' | TransactionType;
@@ -532,6 +616,7 @@ interface MobileFilterSheetProps {
   paymentMethod: string;
   onPaymentMethodChange: (v: string) => void;
   paymentMethods: ReturnType<typeof selectPaymentMethods>;
+  yearOptions: string[];
   monthOptions: string[];
   hasFilter: boolean;
   onReset: () => void;
@@ -540,6 +625,8 @@ interface MobileFilterSheetProps {
 function MobileFilterSheet({
   open,
   onClose,
+  year,
+  onYearChange,
   month,
   onMonthChange,
   type,
@@ -547,6 +634,7 @@ function MobileFilterSheet({
   paymentMethod,
   onPaymentMethodChange,
   paymentMethods,
+  yearOptions,
   monthOptions,
   hasFilter,
   onReset,
@@ -569,8 +657,20 @@ function MobileFilterSheet({
 
         <div className="space-y-4">
           <div>
+            <label className="mb-1.5 block text-xs font-medium text-slate-500">年份</label>
+            <Select value={year} onChange={onYearChange} className="w-full">
+              {yearOptions.map((y) => (
+                <option key={y} value={y}>
+                  {formatYearLabel(y)}
+                </option>
+              ))}
+            </Select>
+          </div>
+
+          <div>
             <label className="mb-1.5 block text-xs font-medium text-slate-500">月份</label>
             <Select value={month} onChange={onMonthChange} className="w-full">
+              <option value="">全年</option>
               {monthOptions.map((m) => (
                 <option key={m} value={m}>
                   {formatMonthLabel(m)}
@@ -628,7 +728,7 @@ function MobileFilterSheet({
               onClick={onClose}
               className="flex-[2] rounded-lg bg-blue-600 px-4 py-2.5 text-sm font-medium text-white shadow-sm transition-colors hover:bg-blue-700"
             >
-              查看 {month ? formatMonthLabel(month) : '结果'}
+              查看 {month ? formatMonthLabel(month) : formatYearLabel(year)}
             </button>
           </div>
         </div>
