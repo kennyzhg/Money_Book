@@ -1,11 +1,12 @@
 import { useEffect, useMemo, useState } from 'react';
-import type { Transaction, TransactionType } from '@shared/types';
+import type { Transaction, TransactionType, IconItem } from '@shared/types';
 import {
   fetchTransactionsPaginated,
   createTransaction,
   updateTransaction,
 } from '@/api/transactions';
 import {
+  selectCategories,
   selectPaymentMethods,
   useConfigStore,
 } from '@/store/configStore';
@@ -52,6 +53,17 @@ export default function Transactions() {
   const [month, setMonth] = useState<string>('');
   const [type, setType] = useState<'' | TransactionType>('');
   const [paymentMethod, setPaymentMethod] = useState<string>('');
+  const [category, setCategory] = useState<string>('');
+
+  // 分类选项：根据已选 type 动态过滤；type=空时合并收入+支出两类
+  const categoryOptions = useMemo(() => {
+    if (type === 'income') return selectCategories(config, 'income');
+    if (type === 'expense') return selectCategories(config, 'expense');
+    return [
+      ...selectCategories(config, 'income'),
+      ...selectCategories(config, 'expense'),
+    ];
+  }, [config, type]);
 
   const [list, setList] = useState<Transaction[]>([]);
   const [total, setTotal] = useState(0);
@@ -79,6 +91,7 @@ export default function Transactions() {
       month: month || undefined,
       type: type || undefined,
       paymentMethod: paymentMethod || undefined,
+      category: category || undefined,
       page,
       pageSize: PAGE_SIZE,
     })
@@ -93,12 +106,12 @@ export default function Transactions() {
   useEffect(() => {
     reload();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [year, month, type, paymentMethod, page]);
+  }, [year, month, type, paymentMethod, category, page]);
 
-  // 筛选条件（year/month/type/paymentMethod）变化时重置到第一页
+  // 筛选条件（year/month/type/paymentMethod/category）变化时重置到第一页
   useEffect(() => {
     setPage(1);
-  }, [year, month, type, paymentMethod]);
+  }, [year, month, type, paymentMethod, category]);
 
   const { deletingId, remove: handleDelete } = useDeleteTransaction({
     onSuccess: (id) => {
@@ -140,16 +153,18 @@ export default function Transactions() {
     { totalIncome: 0, totalExpense: 0 },
   );
 
-  const hasFilter = Boolean(type || paymentMethod);
+  const hasFilter = Boolean(type || paymentMethod || category);
   const resetFilter = () => {
     setType('');
     setPaymentMethod('');
+    setCategory('');
   };
 
   // 移动端：筛选摘要文案
   const filterSummary = [
     month ? formatMonthLabel(month) : formatYearLabel(year),
     type === 'expense' ? '支出' : type === 'income' ? '收入' : '',
+    category,
     paymentMethod,
   ].filter(Boolean).join(' · ');
 
@@ -271,6 +286,31 @@ export default function Transactions() {
               {paymentMethods.map((p) => (
                 <option key={p.name} value={p.name}>
                   {p.name}
+                </option>
+              ))}
+            </Select>
+          </div>
+
+          <div className="flex items-center gap-2">
+            <span className="text-xs text-slate-500">分类</span>
+            <Select
+              value={category}
+              onChange={setCategory}
+              className="w-32"
+              leadingIcon={
+                category ? (
+                  <CategoryLeadingIcon
+                    icon={
+                      categoryOptions.find((c) => c.name === category)?.icon ?? 'circle'
+                    }
+                  />
+                ) : null
+              }
+            >
+              <option value="">全部</option>
+              {categoryOptions.map((c) => (
+                <option key={c.name} value={c.name}>
+                  {c.name}
                 </option>
               ))}
             </Select>
@@ -469,7 +509,14 @@ export default function Transactions() {
           month={month}
           onMonthChange={setMonth}
           type={type}
-          onTypeChange={(v) => setType(v as '' | TransactionType)}
+          onTypeChange={(v) => {
+            setType(v as '' | TransactionType);
+            // 切换类型后，当前分类可能不属于新类型，清空避免失效
+            setCategory('');
+          }}
+          category={category}
+          onCategoryChange={setCategory}
+          categoryOptions={categoryOptions}
           paymentMethod={paymentMethod}
           onPaymentMethodChange={setPaymentMethod}
           paymentMethods={paymentMethods}
@@ -503,6 +550,12 @@ function PaymentMethodIcon({
       {showName && name && <span>{name}</span>}
     </span>
   );
+}
+
+/** 分类下拉框的 leading 图标（与支付方式风格保持一致，不带圆形背景容器） */
+function CategoryLeadingIcon({ icon }: { icon: string }) {
+  const Icon = getIcon(icon);
+  return <Icon size={14} className="text-slate-400" />;
 }
 
 /* ============== 移动端：卡片列表 ============== */
@@ -613,6 +666,9 @@ interface MobileFilterSheetProps {
   onMonthChange: (v: string) => void;
   type: '' | TransactionType;
   onTypeChange: (v: '' | TransactionType) => void;
+  category: string;
+  onCategoryChange: (v: string) => void;
+  categoryOptions: IconItem[];
   paymentMethod: string;
   onPaymentMethodChange: (v: string) => void;
   paymentMethods: ReturnType<typeof selectPaymentMethods>;
@@ -631,6 +687,9 @@ function MobileFilterSheet({
   onMonthChange,
   type,
   onTypeChange,
+  category,
+  onCategoryChange,
+  categoryOptions,
   paymentMethod,
   onPaymentMethodChange,
   paymentMethods,
@@ -701,6 +760,31 @@ function MobileFilterSheet({
                 </button>
               ))}
             </div>
+          </div>
+
+          <div>
+            <label className="mb-1.5 block text-xs font-medium text-slate-500">分类</label>
+            <Select
+              value={category}
+              onChange={onCategoryChange}
+              className="w-full"
+              leadingIcon={
+                category ? (
+                  <CategoryLeadingIcon
+                    icon={
+                      categoryOptions.find((c) => c.name === category)?.icon ?? 'circle'
+                    }
+                  />
+                ) : null
+              }
+            >
+              <option value="">全部</option>
+              {categoryOptions.map((c) => (
+                <option key={c.name} value={c.name}>
+                  {c.name}
+                </option>
+              ))}
+            </Select>
           </div>
 
           <div>
