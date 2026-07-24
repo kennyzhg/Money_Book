@@ -1,11 +1,22 @@
 import { NavLink } from 'react-router-dom';
-import { LayoutDashboard, Receipt, Settings, BookOpenText } from 'lucide-react';
+import {
+  LayoutDashboard,
+  Receipt,
+  Settings,
+  BookOpenText,
+  CreditCard,
+  BarChart3,
+  FileText,
+} from 'lucide-react';
 import { cn } from '@/lib/utils';
 import BrandLogo from './BrandLogo';
 
 const navItems = [
   { to: '/dashboard', label: '仪表盘', icon: LayoutDashboard },
   { to: '/transactions', label: '全部账单', icon: Receipt },
+  { to: '/planning', label: '财务规划', icon: CreditCard },
+  { to: '/reports', label: '预算报表', icon: BarChart3 },
+  { to: '/bill', label: '账单总览', icon: FileText },
   { to: '/admin', label: '管理', icon: Settings },
 ];
 

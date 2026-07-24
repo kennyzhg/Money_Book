@@ -133,3 +133,233 @@ export interface ApiResponse<T> {
   data: T;
   message: string;
 }
+
+// ====================================================================
+// 财务规划模块（分期 / 固定支出 / 购物计划 / 预算 / 账单）
+// ====================================================================
+
+/** 分期类型：车贷、房贷、电子产品等 */
+export type InstallmentKind = 'car' | 'house' | 'electronics' | 'other';
+
+/** 还款方式 */
+export type InstallmentMethod = 'equal_payment' | 'equal_principal';
+// equal_payment  = 等额本息（每月还款额相同）
+// equal_principal = 等额本金（每月本金相同，利息递减）
+
+/** 分期状态 */
+export type InstallmentStatus = 'active' | 'paid_off' | 'cancelled';
+
+/** 分期记录 */
+export interface Installment {
+  id: string;
+  /** 名称，例如 "车贷-比亚迪汉" */
+  name: string;
+  /** 分期类型 */
+  kind: InstallmentKind;
+  /** 还款方式 */
+  method: InstallmentMethod;
+  /** 本金（元） */
+  principal: number;
+  /** 年利率（百分数，如 4.75 表示 4.75%） */
+  annualRate: number;
+  /** 期数（月） */
+  termMonths: number;
+  /** 起始月份 YYYY-MM（第一期还款月） */
+  startMonth: string;
+  /** 关联的分类名称（写入交易时使用，必须为支出分类） */
+  category: string;
+  /** 关联的支付方式名称 */
+  paymentMethod: string;
+  /** 每月还款额（等额本息时为固定值；等额本金时为首月，仅作展示） */
+  monthlyPayment: number;
+  /** 总利息 */
+  totalInterest: number;
+  /** 总还款额 */
+  totalPayment: number;
+  /** 状态 */
+  status: InstallmentStatus;
+  /** 备注 */
+  note?: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+/** 创建/更新分期时传入的负载 */
+export type InstallmentInput = Omit<
+  Installment,
+  | 'id'
+  | 'monthlyPayment'
+  | 'totalInterest'
+  | 'totalPayment'
+  | 'status'
+  | 'createdAt'
+  | 'updatedAt'
+> & {
+  /** 创建时可显式指定状态（默认 active） */
+  status?: InstallmentStatus;
+};
+
+/** 固定支出记录（每月可预见的固定开销） */
+export interface FixedExpense {
+  id: string;
+  /** 名称，例如 "网费" */
+  name: string;
+  /** 金额（元/月） */
+  amount: number;
+  /** 关联分类（支出） */
+  category: string;
+  /** 关联支付方式 */
+  paymentMethod: string;
+  /** 图标（lucide 名） */
+  icon: string;
+  /** 启用状态：true 才计入预算 */
+  enabled: boolean;
+  /** 生效起始月份 YYYY-MM（默认当前月） */
+  startMonth: string;
+  /** 备注 */
+  note?: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export type FixedExpenseInput = Omit<FixedExpense, 'id' | 'createdAt' | 'updatedAt'>;
+
+/** 购物计划优先级 */
+export type PlanPriority = 'high' | 'medium' | 'low';
+
+/** 购物计划状态 */
+export type PlanStatus = 'planned' | 'purchased' | 'cancelled';
+
+/** 购物计划记录 */
+export interface ShoppingPlan {
+  id: string;
+  /** 物品名称 */
+  name: string;
+  /** 预计花费 */
+  estimatedCost: number;
+  /** 优先级 */
+  priority: PlanPriority;
+  /** 计划购买月份 YYYY-MM（下月或指定月） */
+  planMonth: string;
+  /** 关联分类（支出） */
+  category: string;
+  /** 关联支付方式 */
+  paymentMethod: string;
+  /** 状态 */
+  status: PlanStatus;
+  /** 实际花费（购买后回填） */
+  actualCost?: number;
+  /** 实际购买日期 YYYY-MM-DD */
+  purchasedDate?: string;
+  /** 备注 */
+  note?: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export type ShoppingPlanInput = Omit<
+  ShoppingPlan,
+  'id' | 'status' | 'createdAt' | 'updatedAt'
+> & {
+  status?: PlanStatus;
+};
+
+// ====================================================================
+// 预算对比报表 & 账单总览
+// ====================================================================
+
+/** 预计支出明细项（账单总览中的一行） */
+export interface ProjectedItem {
+  /** 来源类型 */
+  source: 'fixed' | 'installment' | 'plan';
+  /** 来源记录 id */
+  refId: string;
+  /** 名称 */
+  name: string;
+  /** 分类 */
+  category: string;
+  /** 支付方式 */
+  paymentMethod: string;
+  /** 预计金额 */
+  amount: number;
+  /** 图标 */
+  icon: string;
+  /** 原始优先级（仅购物计划有意义） */
+  priority?: PlanPriority;
+}
+
+/** 实际支出明细项（聚合自 transactions，按 category 分组） */
+export interface ActualItem {
+  /** 分类名 */
+  category: string;
+  /** 图标 */
+  icon: string;
+  /** 实际支出金额 */
+  amount: number;
+  /** 包含的笔数 */
+  count: number;
+}
+
+/** 预算对比报表 —— 单月 */
+export interface MonthlyBudgetReport {
+  /** 月份 YYYY-MM */
+  month: string;
+  /** 预计支出总额（固定支出 + 分期 + 购物计划） */
+  projectedExpense: number;
+  /** 实际支出总额 */
+  actualExpense: number;
+  /** 差额（actual - projected；正数=超支，负数=节省） */
+  diff: number;
+  /** 预计明细 */
+  projectedItems: ProjectedItem[];
+  /** 实际明细（按分类聚合） */
+  actualItems: ActualItem[];
+}
+
+/** 预算对比报表 —— 年度 */
+export interface YearlyBudgetReport {
+  /** 年份 YYYY */
+  year: string;
+  /** 全年预计支出 */
+  projectedExpense: number;
+  /** 全年实际支出 */
+  actualExpense: number;
+  /** 差额 */
+  diff: number;
+  /** 各月明细 */
+  months: Array<{
+    month: string;
+    projectedExpense: number;
+    actualExpense: number;
+    diff: number;
+  }>;
+}
+
+/** 账单总览（某月预计账单 vs 实际已支出账单的逐项对比） */
+export interface BillOverview {
+  /** 月份 YYYY-MM */
+  month: string;
+  /** 预计总额 */
+  projectedTotal: number;
+  /** 实际总额 */
+  actualTotal: number;
+  /** 差额（正=超支，负=节省） */
+  diff: number;
+  /** 逐项对比 */
+  items: Array<{
+    /** 名称 */
+    name: string;
+    /** 分类 */
+    category: string;
+    /** 预计金额 */
+    projected: number;
+    /** 实际金额 */
+    actual: number;
+    /** 差额 */
+    diff: number;
+    /** 来源类型 */
+    source: ProjectedItem['source'];
+    /** 图标 */
+    icon: string;
+  }>;
+}

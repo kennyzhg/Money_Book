@@ -14,6 +14,10 @@ import { fileURLToPath } from 'node:url';
 import transactionRoutes from './routes/transactions.js';
 import statisticsRoutes from './routes/statistics.js';
 import configRoutes from './routes/config.js';
+import installmentRoutes from './routes/installments.js';
+import fixedExpenseRoutes from './routes/fixedExpenses.js';
+import shoppingPlanRoutes from './routes/shoppingPlans.js';
+import billRoutes from './routes/bills.js';
 
 dotenv.config();
 
@@ -30,6 +34,10 @@ app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 app.use('/api/v1/transactions', transactionRoutes);
 app.use('/api/v1/statistics', statisticsRoutes);
 app.use('/api/v1/config', configRoutes);
+app.use('/api/v1/installments', installmentRoutes);
+app.use('/api/v1/fixed-expenses', fixedExpenseRoutes);
+app.use('/api/v1/shopping-plans', shoppingPlanRoutes);
+app.use('/api/v1/bills', billRoutes);
 
 /** 健康检查 */
 app.use('/api/health', (_req: Request, res: Response): void => {

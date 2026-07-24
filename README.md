@@ -7,6 +7,7 @@
 ## 目录
 
 - [项目特性](#项目特性)
+- [财务规划 API（新增）](#财务规划-api新增)
 - [Linux 部署](#linux-部署)
   - [1. 安装 Node.js](#1-安装-nodejs)
   - [2. 部署项目](#2-部署项目)
@@ -25,18 +26,9 @@
   - [批量导入账单](#批量导入账单)
   - [筛选与查看账单](#筛选与查看账单)
   - [仪表盘](#仪表盘)
-- [AI Agent 对接指南](#ai-agent-对接指南)
-  - [各 AI Agent 工具简介与适用场景](#各-ai-agent-工具简介与适用场景)
-  - [环境要求与前置条件](#环境要求与前置条件)
-  - [通用对接步骤](#通用对接步骤)
-  - [OpenClaw 对接](#openclaw-对接)
-  - [Hermes 对接](#hermes-对接)
-  - [Dify / Coze / FastGPT 等低代码平台对接](#dify--coze--fastgpt-等低代码平台对接)
-  - [LangChain / LlamaIndex（Python 开发框架）对接](#langchain--llamaindexpython-开发框架对接)
-  - [curl / Postman 快速调试](#curl--postman-快速调试)
-  - [常见问题排查](#常见问题排查)
-  - [数据模型与统一响应格式](#数据模型与统一响应格式)
-  - [参考文档](#参考文档)
+  - [财务规划（分期 / 固定支出 / 购物计划）](#财务规划分期--固定支出--购物计划)
+  - [预算对比报表](#预算对比报表)
+  - [账单总览](#账单总览)
 
 ---
 
@@ -46,8 +38,93 @@
 - **账单列表**：按月份、类型、支付方式筛选，支持单条编辑、删除
 - **批量导入**：CSV 模板填写后一键导入，错误跳过并详细反馈
 - **仪表盘**：年度视图（月度趋势图 + 汇总表）+ 月度视图（摘要卡 + 分类/支付方式图表 + 当月明细）
+- **财务规划**（新增）：
+  - **分期计算器**：支持车贷/房贷/电子产品分期，等额本息/等额本金两种方式，根据本金、利率、期数计算每月还款；可将当月应还款一键自动计入支出交易
+  - **固定支出管理**：维护每月固定开销清单（网费、水费、电费、物业费等），支持启用/停用、自定义金额与图标，自动纳入每月预算
+  - **购物计划**：登记下月计划购买物品，含名称、预计花费、优先级（高/中/低）、计划月份，自动纳入对应月份的预计支出；支持「标记已购」回填实际花费
+- **预算对比报表**（新增）：按月/按年生成「预计支出（固定+分期+计划）vs 实际支出」对比，含可视化柱状图与逐项差异明细（超支/节省一目了然）
+- **账单总览**（新增）：某月综合账单，逐项对比预计与实际，按差异绝对值排序，直观看出哪一项超预算最多
 - **管理后台**：可视化新增/删除分类（按收入/支出分组）、支付方式，内置图标选择器（按主题分组，支持搜索）
 - **数据持久化**：SQLite 单文件存储（`data/money.db`），WAL 模式，零配置
+
+---
+
+## 财务规划 API（新增）
+
+所有接口前缀 `/api/v1`，响应格式统一为 `{ success, data, message }`。
+
+### 分期管理 `/installments`
+
+| 方法 | 路径 | 说明 |
+|------|------|------|
+| `GET` | `/installments` | 列出全部分期 |
+| `POST` | `/installments` | 新建分期（自动计算月供/总利息/总还款） |
+| `POST` | `/installments/calc` | 仅试算不入库，入参 `{ principal, annualRate, termMonths, method }` |
+| `POST` | `/installments/post-monthly?month=YYYY-MM` | 把当月所有进行中分期的应还款自动写入交易（幂等） |
+| `GET/PUT/DELETE` | `/installments/:id` | 单条查询/更新/删除 |
+
+**新建分期请求体示例**：
+```json
+{
+  "name": "车贷-比亚迪汉",
+  "kind": "car",
+  "method": "equal_payment",
+  "principal": 150000,
+  "annualRate": 4.75,
+  "termMonths": 36,
+  "startMonth": "2026-07",
+  "category": "交通",
+  "paymentMethod": "银行卡",
+  "note": "可选"
+}
+```
+> `kind`：`car` / `house` / `electronics` / `other`；`method`：`equal_payment`（等额本息）/ `equal_principal`（等额本金）。
+
+### 固定支出 `/fixed-expenses`
+
+| 方法 | 路径 | 说明 |
+|------|------|------|
+| `GET` | `/fixed-expenses` | 列出全部；带 `?month=YYYY-MM` 只返回该月生效项 |
+| `POST` | `/fixed-expenses` | 新建（`{ name, amount, category, paymentMethod, icon, enabled, startMonth, note }`） |
+| `GET/PUT/DELETE` | `/fixed-expenses/:id` | 单条查询/更新/删除 |
+
+### 购物计划 `/shopping-plans`
+
+| 方法 | 路径 | 说明 |
+|------|------|------|
+| `GET` | `/shopping-plans` | 列出全部；带 `?month=YYYY-MM` 只返回该月计划 |
+| `POST` | `/shopping-plans` | 新建（`{ name, estimatedCost, priority, planMonth, category, paymentMethod, note }`） |
+| `PATCH` | `/shopping-plans/:id/purchase` | 标记为已购买，可传 `{ actualCost?, purchasedDate? }` 回填实际花费 |
+| `GET/PUT/DELETE` | `/shopping-plans/:id` | 单条查询/更新/删除 |
+
+> `priority`：`high` / `medium` / `low`。`planMonth` 为计划购买月份 `YYYY-MM`，自动纳入该月预计支出。
+
+### 预算对比报表 `/bills`
+
+| 方法 | 路径 | 说明 |
+|------|------|------|
+| `GET` | `/bills/budget-monthly?month=YYYY-MM` | 月度预算对比（预计=固定+分期+计划；实际=该月支出交易聚合） |
+| `GET` | `/bills/budget-yearly?year=YYYY` | 年度预算对比，含逐月明细数组 |
+| `GET` | `/bills/overview?month=YYYY-MM` | 账单总览：逐项对比预计 vs 实际，按差异排序 |
+
+**月度预算对比响应示例**：
+```json
+{
+  "month": "2026-07",
+  "projectedExpense": 5200.00,
+  "actualExpense": 4850.50,
+  "diff": -349.50,
+  "projectedItems": [
+    { "source": "fixed", "refId": "...", "name": "网费", "category": "居住", "amount": 100.00, "icon": "wifi" },
+    { "source": "installment", "refId": "...", "name": "车贷", "category": "交通", "amount": 4500.00, "icon": "car" },
+    { "source": "plan", "refId": "...", "name": "新手机", "category": "购物", "amount": 600.00, "icon": "shopping-bag", "priority": "high" }
+  ],
+  "actualItems": [
+    { "category": "餐饮", "icon": "utensils", "amount": 1200.00, "count": 28 }
+  ]
+}
+```
+> `diff` 为正=超支，为负=节省。
 
 ---
 
@@ -203,7 +280,7 @@ sudo ufw enable
 cd /opt/money-tracker
 
 # 1. 备份数据库（强烈建议）
-sqlite3 data/money.db "VACUUM INTO 'data/money-backup-$(date +%Y%m%d).db'"
+cp data/money.db data/money-backup-$(date +%Y%m%d).db
 
 # 2. 拉取新代码 / 覆盖文件
 # git pull origin main
@@ -219,53 +296,11 @@ npm run build
 sudo systemctl restart money-tracker
 ```
 
-**数据库备份**：
-
-> ⚠️ 本项目使用 SQLite WAL 模式，**不可直接用 `cp money.db` 备份**（WAL 中可能有未合并的写入）。
-> 正确方法：用 `VACUUM INTO` 不停服生成完整个单文件快照。
-
-**手动备份一次**：
+**数据库备份**（服务运行中也可，WAL 模式支持热备份）：
 
 ```bash
-sqlite3 /opt/money-tracker/data/money.db \
-  "VACUUM INTO '/opt/money-tracker/data/money-$(date +%Y%m%d-%H%M%S).db'"
+cp data/money.db data/money-backup-$(date +%Y%m%d-%H%M%S).db
 ```
-
-**每日自动备份（cron）**：
-
-项目内置了备份脚本 `scripts/money_db_backup.sh`，部署到服务器后注册 cron 即可：
-
-```bash
-# 1. 将脚本部署到服务器（rsync 会同步 scripts/ 目录）
-# 2. 注册定时任务（每天凌晨 3:00 执行）
-crontab -e
-```
-
-添加一行：
-
-```cron
-0 3 * * * /www/wwwroot/money_book/scripts/money_db_backup.sh
-```
-
-脚本内容（可根据实际路径修改）：
-
-```bash
-DB_DIR="/www/wwwroot/money_book/src/data"     # 数据库目录
-BACKUP_DIR="/root/synology/money_db_bak"       # 备份存放目录（可改为 NAS/远程挂载）
-RETENTION_DAYS=7                                # 保留最近 7 天的备份
-
-# VACUUM INTO 不停服生成单文件快照
-sqlite3 "$DB_DIR/money.db" \
-  "VACUUM INTO '$BACKUP_DIR/money-$(date +%Y%m%d-%H%M%S).db'"
-
-# 清理 7 天前的旧备份
-find "$BACKUP_DIR" -name 'money-*.db' -mtime +$RETENTION_DAYS -delete
-```
-
-选择说明：
-- `VACUUM INTO` 会自动合并 WAL 日志到主库，生成 **单个完整的 `.db` 文件**，无需同时备份 `.db-wal` 和 `.db-shm`
-- 备份期间应用**无需停机**，不影响用户使用
-- 生成的单文件可随意拷贝、scp、上传到 NAS
 
 **清空数据重新初始化**（停止服务后执行）：
 
@@ -418,7 +453,7 @@ PORT=3002 npm start
 
 ## 使用说明
 
-启动后浏览器访问应用，左侧导航包含三个入口：**仪表盘** / **全部账单** / **管理**。移动端为底部 Tab 切换。
+启动后浏览器访问应用，左侧导航包含六个入口：**仪表盘** / **全部账单** / **财务规划** / **预算报表** / **账单总览** / **管理**。移动端为底部 Tab 切换。
 
 ### 记一笔
 
@@ -573,462 +608,46 @@ Excel 在中文 Windows 下默认保存为 GBK，会导致中文乱码。请按�
 - 当月支出分类占比 + 支付方式分布
 - 当月账单明细列表（默认显示前 10 条，可点击「查看全部」跳转）
 
-> 💡 中国 A 股惯例：**涨红跌绿**。本应用中收入用绿色、支出用红色，遵循通用财务展示习惯。
+> 💡 **配色约定**：本应用遵循通用财务展示习惯——**收入用绿色、支出用红色**。注意这与 A 股「涨红跌绿」恰好相反；如果你更习惯股市配色，可在「管理」页面自行调整。
 
----
 
-## AI Agent 对接指南
+### 财务规划（分期 / 固定支出 / 购物计划）
 
-本项目内置一套 **Agent-Friendly** 的 RESTful API，支持与 OpenClaw、Hermes、Dify、Coze、FastGPT、LangChain 等 AI Agent 工具无缝集成，让 AI 助手直接帮用户记账、查账、分析财务趋势。
+进入「**财务规划**」页面，顶部有三个 Tab 切换：
 
-详细的 API 接口文档见仓库内 [`openclaw_readme.md`](./openclaw_readme.md)（完整 OpenAPI 规格与 JSON Schema），实操教程见 [`openclaw_tutorial.md`](./openclaw_tutorial.md)（含分步示例）。
+**分期计算器**：
 
-### 各 AI Agent 工具简介与适用场景
+1. 在「分期试算」卡片输入 **本金 / 年利率 / 期数**，选择 **还款方式**（等额本息 / 等额本金），实时显示每月还款、总利息、总还款
+2. 点击「**精确计算**」可调用后端公式复核（等额本息按标准年金公式，等额本金按首月还款展示）
+3. 在下方分期列表点击「**新建分期**」，填写名称（如「车贷-比亚迪汉」）、分期类型（车贷/房贷/电子产品/其他）、起始月份、关联的分类与支付方式后保存
+4. 点击「**本月自动入账**」：系统会把当月所有进行中分期的应还款**自动写入一笔支出交易**（日期固定为当月 15 号，重复点击幂等不会重复入账）
 
-| 工具 | 简介 | 适用场景 |
-|------|------|----------|
-| **OpenClaw** | 通用 Function Calling 引擎，支持自定义 Tool 注册 | Agent 直接调用记账 API，适合有开发能力的团队自建 Agent |
-| **Hermes（赫尔墨斯）** | 跨平台 AI 助手框架，支持 MCP / Function Calling / 插件系统 | 多 Agent 协同场景，适合需要统一管理多个 API 工具的中大型部署 |
-| **Dify** | 开源 LLM 应用开发平台，可视化工作流编排 | 低代码拖拽式搭建记账助手，适合非开发者快速上手的场景 |
-| **Coze** | 字节跳动推出的 AI Bot 构建平台 | 快速创建个人记账 Bot，支持插件市场发布与分享 |
-| **FastGPT** | 基于知识库和工具调用的问答引擎 | 结合记账数据做智能问答，适合"查账 + 分析"的对话场景 |
-| **LangChain / LlamaIndex** | 开发框架，提供 Tool / Agent 抽象层 | 开发者编写自定义 Python/TS Agent，深度集成记账能力到现有系统 |
-| **curl / Postman** | 通用 HTTP 请求工具 | 快速验证 API 可用性、调试接口、手动模拟 Agent 行为 |
+**固定支出**：
 
-### 环境要求与前置条件
+1. 维护每月固定开销清单（如网费、水费、电费、物业费）
+2. 每项含名称、每月金额、支出分类、支付方式、图标、**启用开关**、**生效起始月份**
+3. 停用某项后不再计入预算；生效起始月份之前的历史月份也不计入
 
-| 条件 | 说明 |
-|------|------|
-| **服务已启动** | 确保 Money Tracker 后端正在运行（`npm start` 或 `npm run dev`） |
-| **网络可达** | Agent 所在机器与 Money Tracker 服务器之间网络互通 |
-| **端口放行** | 服务器防火墙已放行对应端口（默认 `3001`） |
-| **无鉴权** | 当前版本为本地/内网部署，API 无需鉴权；公网部署强烈建议加 Nginx HTTPS 反向代理 |
-| **占位符替换** | 所有 API 示例中的 `<SERVER_HOST>` 和 `<SERVER_PORT>` 需替换为实际地址和端口 |
+**购物计划**：
 
-> **快速验证服务是否可用**：
-> ```bash
-> # 替换为实际地址
-> curl http://<SERVER_HOST>:<SERVER_PORT>/api/health
-> # → 期望返回 { "success": true, "message": "ok" }
-> ```
+1. 登记下月计划购买的物品：名称、预计花费、**优先级**（高/中/低）、**计划月份**
+2. 计划会自动纳入对应月份的「预计支出」
+3. 购买后点击「**标记已购**」，系统回填实际花费（默认取预计花费）与购买日期
 
-### 通用对接步骤
+### 预算对比报表
 
-所有 AI Agent 工具遵循相同的核心对接流程：
+进入「**预算报表**」页面，顶部切换月度 / 年度视图：
 
-```
-Step 1 ── 确认服务运行     → curl /api/health 验证
-Step 2 ── 获取配置白名单    → GET /api/v1/config（分类、支付方式）
-Step 3 ── 注册 API 端点    → 将下方各端点注册为 Tool / HTTP 节点
-Step 4 ── 编写调用逻辑     → 参照推荐流程实现记账/查账/分析
-Step 5 ── 联调测试         → 用 curl 模拟 Agent 调用，验证数据写入正确
-```
+**预计支出 = 固定支出（启用且当月生效）+ 分期（进行中且在还款周期内）+ 购物计划（当月未取消）**
+**实际支出 = 当月已记录的支出交易按分类聚合**
 
-**需要注册的核心端点**：
+- 三张摘要卡：预计 / 实际 / 差额（正数=超支红色，负数=节省绿色）
+- 可视化柱状图：预计 vs 实际并列对比
+- 逐项明细：预计项列表 + 实际支出按分类聚合列表
 
-| 方法 | 路径 | 用途 |
-|------|------|------|
-| `GET` | `/api/health` | 健康检查（Agent 启动时探测服务可用性） |
-| `GET` | `/api/v1/config` | 获取所有可用分类、支付方式（**必须先调此接口**） |
-| `POST` | `/api/v1/transactions` | 新建一笔交易 |
-| `GET` | `/api/v1/transactions` | 查询交易列表（支持按月份/类型/支付方式筛选） |
-| `GET` | `/api/v1/transactions/:id` | 获取单条交易详情 |
-| `PUT` | `/api/v1/transactions/:id` | 更新交易 |
-| `DELETE` | `/api/v1/transactions/:id` | 删除交易 |
-| `GET` | `/api/v1/statistics/monthly?month=YYYY-MM` | 指定月份的统计聚合 |
-| `GET` | `/api/v1/statistics/overview` | 全年各月收支概览 |
+### 账单总览
 
-> ⚠️ **重要**：`category` 和 `paymentMethod` 字段的值**必须**来自 `GET /api/v1/config` 的返回，不能硬编码。用户可能在 Web 管理后台修改分类名称，Agent 应始终先获取最新的配置。
+进入「**账单总览**」页面，选择某个月份，查看该月的综合账单：
 
----
-
-### OpenClaw 对接
-
-OpenClaw 通过标准的 Function Calling 协议与 API 交互。
-
-#### 对接步骤
-
-1. **确认服务运行**：确保已部署并启动 Money Tracker（详见上方「Linux 部署」章节）
-2. **注册 Tool 定义**：在 OpenClaw 的 Tool 配置中，为每个核心端点注册对应的工具，需提供 JSON Schema（请求参数、响应格式）
-3. **System Prompt 提示**：在 Agent 的 System Prompt 中加入以下指引：
-
-```
-你是一个个人记账助手。你有权调用以下 API：
-1. 记账：POST /api/v1/transactions（需先获取分类/支付方式配置）
-2. 查账：GET /api/v1/transactions（支持 month/type/category 筛选）
-3. 统计分析：GET /api/v1/statistics/monthly 和 /api/v1/statistics/overview
-4. 增删改：PUT/DELETE /api/v1/transactions/:id
-规则：所有 category 和 paymentMethod 必须从 GET /api/v1/config 获取。
-```
-
-4. **完整 Tool 定义**：详细的 OpenAPI Spec 和 JSON Schema 见 [`openclaw_readme.md`](./openclaw_readme.md) 第 3～5 节，以及 [`openclaw_tutorial.md`](./openclaw_tutorial.md) 第三章。
-
-#### 推荐调用流程
-
-参考 [`openclaw_readme.md` 第 7 节](./openclaw_readme.md#7-推荐调用流程agent-实践)，包含四种典型场景的完整调用序列：
-
-| 场景 | 调用序列 | 说明 |
-|------|----------|------|
-| **A：记账** | `GET /api/v1/config` → `POST /api/v1/transactions` | 先拉配置白名单，再写数据 |
-| **B：月消费查询** | `GET /api/v1/statistics/monthly?month=YYYY-MM` | 获取月度汇总 + 分类 Top |
-| **C：删除记录** | `GET /api/v1/transactions` → `DELETE /api/v1/transactions/{id}` | 先查找到目标交易，再删除 |
-| **D：趋势分析** | `GET /api/v1/statistics/overview` | 获取全年各月收支结余变化 |
-
----
-
-### Hermes 对接
-
-Hermes（赫尔墨斯）是一个跨平台 AI 助手框架，支持 MCP（Model Context Protocol）和 Function Calling 两种对接方式。
-
-#### 方式一：MCP 协议（推荐）
-
-Hermes 原生支持 MCP（Model Context Protocol），可通过 MCP Server 的方式自动发现 API 工具。
-
-1. **确认 Money Tracker 可访问**：确保 Hermes 所在网络可到达服务器，防火墙已放行端口
-2. **配置 Hermes MCP**：编辑 Hermes 的 `mcp.json` 配置文件，添加 Money Tracker 的 MCP Server：
-
-```json
-{
-  "mcpServers": {
-    "money-tracker": {
-      "url": "http://<SERVER_HOST>:<SERVER_PORT>/mcp",
-      "headers": { "Content-Type": "application/json" }
-    }
-  }
-}
-```
-
-> 注意：当前 Money Tracker 尚未内置 MCP Server 端点，此方式需配合 MCP 代理层或 Hermes 的自定义 Tool 注册功能使用。推荐先使用下方方式二。
-
-#### 方式二：Function Calling（通用）
-
-适用于 Hermes 的 Function Calling 模式，步骤与 OpenClaw 类似。
-
-1. **定义 Tool 清单**：将核心 API 端点注册为 Hermes 的 Function Tool，每个 Tool 需包含：
-   - 函数名称（如 `create_transaction`、`query_statistics`）
-   - 参数描述（JSON Schema）
-   - 调用端点（对应 API 路径与 HTTP 方法）
-
-2. **配置 Hermes 插件**（示例 YAML）：
-
-```yaml
-tools:
-  - name: create_transaction
-    description: 新增一笔交易记录
-    api:
-      method: POST
-      url: http://<SERVER_HOST>:<SERVER_PORT>/api/v1/transactions
-      headers:
-        Content-Type: application/json
-    parameters:
-      type: object
-      required: [date, amount, type, category, paymentMethod]
-      properties:
-        date: { type: string, description: "日期，YYYY-MM-DD 格式" }
-        amount: { type: number, description: "金额，大于 0" }
-        type: { type: string, enum: ["income", "expense"] }
-        category: { type: string, description: "必须先调用 GET /api/v1/config 获取" }
-        paymentMethod: { type: string, description: "必须先调用 GET /api/v1/config 获取" }
-        note: { type: string, description: "备注（可选）" }
-```
-
-3. **测试验证**：使用 Health Check 端点确认连接，然后测试一笔记账操作。
-
----
-
-### Dify / Coze / FastGPT 等低代码平台对接
-
-这些平台无需写代码，通过可视化界面配置 HTTP 请求节点即可。
-
-#### 通用配置方法
-
-1. **新建 HTTP 请求节点**，填入 API 地址（替换 `<SERVER_HOST>`、`<SERVER_PORT>`）
-2. **设置请求参数**，按各端点的字段说明填写
-3. **解析响应**：所有接口返回统一格式 `{ "success": bool, "data": ..., "message": "..." }`
-
-#### 各端点配置示例
-
-| 节点用途 | Method | URL | 参数 |
-|----------|--------|-----|------|
-| 健康检查 | `GET` | `http://<SERVER_HOST>:<SERVER_PORT>/api/health` | 无需参数 |
-| 获取配置 | `GET` | `http://<SERVER_HOST>:<SERVER_PORT>/api/v1/config` | 无需参数 |
-| 新增交易 | `POST` | `http://<SERVER_HOST>:<SERVER_PORT>/api/v1/transactions` | Body JSON：`{ "date","amount","type","category","paymentMethod","note" }` |
-| 查询交易 | `GET` | `http://<SERVER_HOST>:<SERVER_PORT>/api/v1/transactions` | Query：`month`、`type`、`paymentMethod`、`category` |
-| 月度统计 | `GET` | `http://<SERVER_HOST>:<SERVER_PORT>/api/v1/statistics/monthly` | Query：`month`（如 `2026-07`） |
-| 全年概览 | `GET` | `http://<SERVER_HOST>:<SERVER_PORT>/api/v1/statistics/overview` | 无需参数 |
-
-> **Coze 特别说明**：Coze 的 HTTP 插件配置中，中文参数值（如 `paymentMethod=微信`）需要 URL 编码。Coze 的「HTTP 请求」节点**不会自动编码**，建议在流程中用「代码节点」或「变量处理」节点手动编码后再传入。
-
-> **FastGPT 特别说明**：FastGPT 中每个 API 端点需注册为一个「工具」，建议将 GET 和 POST 分开注册。返回数据中的 `message` 字段可直接用于 Agent 回复用户。
-
----
-
-### LangChain / LlamaIndex（Python 开发框架）对接
-
-使用 `requests` 或 `httpx` 封装为 Python Tool，集成到 LangChain Agent 中。
-
-#### Python 工具封装示例
-
-```python
-import requests
-from typing import Optional
-
-BASE_URL = "http://<SERVER_HOST>:<SERVER_PORT>/api/v1"
-
-def get_config():
-    """获取所有可用分类与支付方式（Agent 记账前必须先调用）"""
-    resp = requests.get(f"{BASE_URL}/config")
-    return resp.json()
-
-def create_transaction(
-    date: str,
-    amount: float,
-    type_: str,
-    category: str,
-    payment_method: str,
-    note: Optional[str] = None
-):
-    """新增一笔交易"""
-    body = {
-        "date": date,
-        "amount": amount,
-        "type": type_,
-        "category": category,
-        "paymentMethod": payment_method,
-    }
-    if note:
-        body["note"] = note
-    resp = requests.post(f"{BASE_URL}/transactions", json=body)
-    return resp.json()
-
-def query_transactions(
-    month: Optional[str] = None,
-    type_: Optional[str] = None,
-    payment_method: Optional[str] = None,
-    category: Optional[str] = None
-):
-    """查询交易列表，支持筛选"""
-    params = {}
-    if month: params["month"] = month
-    if type_: params["type"] = type_
-    if payment_method: params["paymentMethod"] = payment_method
-    if category: params["category"] = category
-    resp = requests.get(f"{BASE_URL}/transactions", params=params)
-    return resp.json()
-
-def monthly_statistics(month: str):
-    """获取指定月份收支统计"""
-    resp = requests.get(f"{BASE_URL}/statistics/monthly", params={"month": month})
-    return resp.json()
-
-def yearly_overview():
-    """获取全年收支概览"""
-    resp = requests.get(f"{BASE_URL}/statistics/overview")
-    return resp.json()
-```
-
-然后在 LangChain 中注册为 Tool：
-
-```python
-from langchain.tools import StructuredTool
-
-create_tool = StructuredTool.from_function(
-    func=create_transaction,
-    name="create_transaction",
-    description="新增一笔交易记录。date(YYYY-MM-DD), amount(>0), type(income/expense), category(来自config), paymentMethod(来自config)"
-)
-```
-
-#### TypeScript / Node.js 封装示例
-
-```typescript
-const BASE = "http://<SERVER_HOST>:<SERVER_PORT>/api/v1";
-
-async function createTransaction(params: {
-  date: string;
-  amount: number;
-  type: "income" | "expense";
-  category: string;
-  paymentMethod: string;
-  note?: string;
-}) {
-  const resp = await fetch(`${BASE}/transactions`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(params),
-  });
-  return resp.json();
-}
-```
-
----
-
-### curl / Postman 快速调试
-
-#### 健康检查
-
-```bash
-curl http://<SERVER_HOST>:<SERVER_PORT>/api/health
-```
-
-#### 获取配置
-
-```bash
-curl http://<SERVER_HOST>:<SERVER_PORT>/api/v1/config
-```
-
-#### 查询交易（示例：2026-07 月的餐饮支出）
-
-```bash
-curl -s -G "http://<SERVER_HOST>:<SERVER_PORT>/api/v1/transactions" \
-  --data-urlencode "month=2026-07" \
-  --data-urlencode "type=expense" \
-  --data-urlencode "category=餐饮"
-```
-
-#### 新增一笔交易
-
-```bash
-curl -X POST "http://<SERVER_HOST>:<SERVER_PORT>/api/v1/transactions" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "date": "2026-07-20",
-    "amount": 35.50,
-    "type": "expense",
-    "category": "餐饮",
-    "paymentMethod": "微信",
-    "note": "午餐"
-  }'
-```
-
-#### 月度统计
-
-```bash
-curl "http://<SERVER_HOST>:<SERVER_PORT>/api/v1/statistics/monthly?month=2026-07"
-```
-
-#### 全年概览
-
-```bash
-curl "http://<SERVER_HOST>:<SERVER_PORT>/api/v1/statistics/overview"
-```
-
----
-
-### 常见问题排查
-
-#### Q1：Agent 报错 "连接被拒绝" / "Connection refused"
-
-```bash
-# 1. 确认服务是否运行
-ssh user@server "systemctl status money-tracker"
-
-# 2. 防火墙是否放行（以 3001 端口为例）
-ssh user@server "sudo ufw status | grep 3001"     # Ubuntu
-# 或
-ssh user@server "sudo firewall-cmd --list-ports"  # CentOS
-
-# 3. 端口是否被其他进程占用
-ssh user@server "ss -lntp | grep 3001"
-
-# 4. 确认 Agent 机器到服务器网络可达
-ping <SERVER_HOST>
-```
-
-#### Q2：API 返回 `{ "success": false, "message": "category 不合法：{名称}" }`
-
-**原因**：传入的 `category` 或 `paymentMethod` 不在当前配置中。
-
-**解决**：
-1. 调用 `GET /api/v1/config` 获取最新的分类和支付方式列表
-2. 确认名称完全一致（区分大小写）
-3. 如果名称确实不存在，可以先通过 Web 管理后台添加，或告知用户去「管理」页面新增
-
-> Agent 开发建议：每次 `POST /api/v1/transactions` 前都先调用 `GET /api/v1/config` 获取最新配置，避免使用过时的缓存数据。
-
-#### Q3：API 返回 `{ "success": false, "message": "amount 必须大于 0" }`
-
-**原因**：传入的 `amount` 不是正数。
-
-**解决**：
-- 检查传入的金额是否 > 0
-- 金额不能包含货币符号（如 `¥35.50` 错误，`35.50` 正确）
-- 金额支持最多两位小数
-
-#### Q4：中文查询参数乱码 / 无结果
-
-**原因**：中文参数（如 `paymentMethod=微信`）未做 URL 编码。
-
-**解决**：
-```bash
-# ✅ 正确（使用 --data-urlencode）
-curl -G "http://<SERVER_HOST>:<SERVER_PORT>/api/v1/transactions" \
-  --data-urlencode "paymentMethod=微信"
-
-# ❌ 错误（中文在 URL 中未编码）
-curl "http://<SERVER_HOST>:<SERVER_PORT>/api/v1/transactions?paymentMethod=微信"
-```
-
-对于低代码平台（Dify / Coze），如果平台不自带 URL 编码，需手动使用 `encodeURIComponent` 或平台提供的变量处理节点。
-
-#### Q5：POST 请求返回 400 / 参数校验失败
-
-**检查项**：
-- `Content-Type: application/json` 是否已设置
-- 请求体是否为合法的 JSON 格式
-- 必填字段是否缺失
-- `date` 格式是否为 `YYYY-MM-DD`（如 `2026-07-20`）
-- `type` 是否为 `income` 或 `expense`
-- `amount` 是否为数字类型（字符串 `"35"` 会被拒绝）
-
-#### Q6：Agent 启动后无法获取数据（404）
-
-```bash
-# 检查 API 路径是否正确
-curl http://<SERVER_HOST>:<SERVER_PORT>/api/v1/config
-
-# 如果返回 404，确认 API 前缀是否为 /api/v1
-# 开发模式下，API 地址为 http://localhost:3001/api/v1/...
-# 如果通过前端代理（5173），地址为 http://localhost:5173/api/v1/...
-```
-
-> 建议 Agent 在启动时先通过 `GET /api/health` 做健康检查，确保服务在正确的 URL 上响应。
-
----
-
-### 数据模型与统一响应格式
-
-所有 API 返回统一 JSON 结构：
-
-```json
-{
-  "success": true,       // boolean: 请求是否成功
-  "data": { ... },       // T | null: 业务数据
-  "message": "ok"        // string: 状态说明 / 错误描述
-}
-```
-
-**交易数据模型**：
-
-| 字段 | 类型 | 说明 |
-|------|------|------|
-| `id` | string | UUID 唯一标识 |
-| `date` | string | `YYYY-MM-DD` 格式日期 |
-| `amount` | number | 金额（正数，最多 2 位小数） |
-| `type` | `income` / `expense` | 收入或支出 |
-| `category` | string | 分类名（必须来自配置白名单） |
-| `paymentMethod` | string | 支付方式（必须来自配置白名单） |
-| `note` | string | 备注（可选） |
-| `createdAt` | string | ISO 8610 时间戳 |
-| `updatedAt` | string | ISO 8610 时间戳 |
-
----
-
-### 参考文档
-
-| 文档 | 内容 | 推荐阅读场景 |
-|------|------|-------------|
-| [`openclaw_readme.md`](./openclaw_readme.md) | 完整 API 接口文档（含 JSON Schema、统一响应格式、错误码表） | 开发者对接 API 时的详参 |
-| [`openclaw_tutorial.md`](./openclaw_tutorial.md) | 分步实操教程（含快速验证、参数说明、故障排查） | 初次对接时跟随操作 |
-| 本文「Linux 部署」章节 | 服务安装、部署、systemd、Nginx 反代 | 部署服务器时参考 |
-| 本文「端口配置」章节 | 不同模式下端口修改方式 | 修改服务端口时参考 |
+- 顶部三张卡：预计账单总额 / 实际账单总额 / 差额
+- 逐项对比表：以「分类」为键对齐预计与实际，每行显示项目名、预计金额、实际金额、差额，**按差异绝对值从大到小排序**，一眼看出哪一项超预算最多
