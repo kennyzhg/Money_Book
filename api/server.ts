@@ -3,10 +3,14 @@
  */
 import app from './app.js';
 
-const PORT = process.env.PORT || 3001;
+const PORT = Number(process.env.PORT || 3001);
+// HOST 不配则监听所有网卡（0.0.0.0）；
+// 内网单人场景建议设为内网 IP，如 192.168.x.x，避免暴露到公网网卡
+const HOST = process.env.HOST || '0.0.0.0';
 
-const server = app.listen(PORT, () => {
-  console.log(`Server ready on port ${PORT}`);
+const server = app.listen(PORT, HOST, () => {
+  const display = HOST === '0.0.0.0' ? `所有网卡 :${PORT}` : `${HOST}:${PORT}`;
+  console.log(`Server ready on ${display}`);
 });
 
 process.on('SIGTERM', () => {

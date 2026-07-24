@@ -7,14 +7,20 @@
 ## 目录
 
 - [项目特性](#项目特性)
+- [单账号登录](#单账号登录)
+  - [鉴权方式](#鉴权方式)
+  - [会话有效期](#会话有效期)
+  - [API Token（AI Agent 接入）](#api-tokenai-agent-接入)
 - [财务规划 API（新增）](#财务规划-api新增)
+  - [鉴权说明](#鉴权说明)
 - [Linux 部署](#linux-部署)
   - [1. 安装 Node.js](#1-安装-nodejs)
   - [2. 部署项目](#2-部署项目)
-  - [3. 使用 systemd 守护进程](#3-使用-systemd-守护进程)
-  - [4. Nginx 反向代理（可选）](#4-nginx-反向代理可选)
-  - [5. 防火墙](#5-防火墙)
-  - [6. 升级与备份](#6-升级与备份)
+  - [3. 环境变量配置（.env）](#3-环境变量配置env)
+  - [4. 使用 systemd 守护进程](#4-使用-systemd-守护进程)
+  - [5. Nginx 反向代理（可选）](#5-nginx-反向代理可选)
+  - [6. 防火墙](#6-防火墙)
+  - [7. 升级、备份与恢复](#7-升级备份与恢复)
 - [端口配置](#端口配置)
   - [生产模式（单端口）](#生产模式单端口)
   - [开发模式（前后端分离端口）](#开发模式前后端分离端口)
@@ -49,7 +55,59 @@
 
 ---
 
+## 单账号登录
+
+> v0.2.0 新增。应用现在需要登录后才能使用。
+
+本系统自 v0.2.0 起引入单账号登录机制，所有 API 请求和前端页面均需身份验证。配置方法见下方「[环境变量配置](#3-环境变量配置env)」。
+
+### 鉴权方式
+
+支持两种鉴权方式，满足任一即可：
+
+**方式 1：浏览器 Cookie（Web UI）**
+
+首次访问会自动跳转到登录页，输入密码后自动创建 session。之后所有请求自动携带 Cookie，无需额外操作。
+
+**方式 2：Bearer Token（AI Agent / 程序化调用）**
+
+适用于 OpenClaw、Hermes、Dify、Coze、curl 等程序化调用场景。配置 `AGENT_API_TOKEN` 后，在请求头中携带：
+
+```bash
+curl -H "Authorization: Bearer <AGENT_API_TOKEN>" \
+     http://<服务器IP>:3001/api/v1/transactions
+```
+
+> ⚠ Token 和 Cookie 两种方式互斥，同一请求只需其一即可。
+
+### 会话有效期
+
+- **默认**：20 分钟滑动过期
+- **行为**：活跃用户每次 API 请求自动续期，闲置超过 20 分钟才自动登出
+- **配置**：通过环境变量 `SESSION_TTL_MINUTES` 修改（单位：分钟）
+
+### API Token（AI Agent 接入）
+
+为方便 Agent 长期调用，推荐配置一个 **长期有效的 API Token**（不走过期机制）：
+
+1. 在服务器上生成随机 Token：
+   ```bash
+   openssl rand -hex 32
+   ```
+2. 将输出写入 `.env` 文件的 `AGENT_API_TOKEN=` 字段
+3. 配置后 Agent 直接使用 `Authorization: Bearer <token>` 调用所有 API，**无需每次先登录**
+
+> 💡 此 Token 是静态长期凭证，请妥善保管。如需轮换，更新 `.env` 后重启服务即可。
+
+---
+
 ## 财务规划 API（新增）
+
+> **鉴权说明**：v0.2.0 起，所有 `/api/v1/*` 业务接口均需鉴权。两种方式选一：
+> - **浏览器**：先登录 → Cookie 自动携带，无需额外处理
+> - **程序化调用**：在请求头加 `Authorization: Bearer <AGENT_API_TOKEN>`（推荐），或先调 `/api/v1/auth/login` 拿到 Cookie
+>
+> 详细配置见上方「[单账号登录](#单账号登录)」章节。
 
 所有接口前缀 `/api/v1`，响应格式统一为 `{ success, data, message }`。
 
@@ -168,6 +226,15 @@ cd /opt/money-tracker
 # 安装依赖
 npm install
 
+# 生成登录密码（交互式，输入不回显）
+npm run gen-password
+# 把输出的哈希保存到 .env 的 APP_PASSWORD_HASH=
+
+# 复制环境变量模板并编辑
+cp .env.example .env
+nano .env
+# 至少填入：APP_PASSWORD_HASH、AGENT_API_TOKEN（可选）
+
 # 构建前端到 dist/
 npm run build
 
@@ -177,6 +244,7 @@ npm prune --omit=dev
 # 启动（前台测试）
 npm start
 # → 输出 "Server ready on port 3001"
+# → 首次访问自动跳转到 /login
 ```
 
 浏览器访问 `http://<服务器IP>:3001/`，即可看到前端页面；API 在 `http://<服务器IP>:3001/api/v1/`。
@@ -185,7 +253,53 @@ npm start
 
 > **注意**：`npm prune --omit=dev` 后若需重新构建，必须再次执行 `npm install`。
 
-### 3. 使用 systemd 守护进程
+### 3. 环境变量配置（.env）
+
+首次部署时，在项目根目录创建 `.env` 文件（复制 `.env.example` 后修改）：
+
+```bash
+cd /opt/money-tracker
+cp .env.example .env
+```
+
+#### 必填变量
+
+| 变量 | 说明 | 生成方式 |
+|------|------|---------|
+| `APP_PASSWORD_HASH` | bcrypt 密码哈希（登录密码） | `npm run gen-password` 交互式生成，或 `printf '你的密码\n你的密码\n' \| npm run gen-password` 脚本化 |
+
+#### 强烈推荐变量
+
+| 变量 | 说明 | 生成方式 |
+|------|------|---------|
+| `AGENT_API_TOKEN` | AI Agent 长期 API Token（见[单账号登录](#api-tokenai-agent-接入)） | `openssl rand -hex 32` |
+
+#### 可选变量
+
+| 变量 | 默认值 | 说明 |
+|------|--------|------|
+| `PORT` | `3001` | 服务监听端口 |
+| `HOST` | `0.0.0.0` | 绑定的网卡 IP；内网部署建议设为具体 IP，如 `192.168.1.10` |
+| `SESSION_TTL_MINUTES` | `20` | Web UI 会话有效期（分钟），滑动过期 |
+| `COOKIE_SECURE` | `false` | Cookie 是否仅 HTTPS 传输；有 HTTPS 反代时设 `true` |
+| `DB_PATH` | `./data/money.db` | 数据库文件路径，一般无需修改 |
+
+#### 完整示例
+
+```bash
+# .env
+APP_PASSWORD_HASH=$2a$12$abcdefghijklmnopqrstuvwxyz1234567890abcdefghijk
+AGENT_API_TOKEN=abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890
+PORT=3001
+HOST=192.168.1.10
+SESSION_TTL_MINUTES=20
+COOKIE_SECURE=false
+```
+
+> ⚠ `.env` 包含敏感信息，**必须加入 `.gitignore`** 禁止提交到 Git。
+> 默认 `.gitignore` 已排除 `.env`，请勿手动删除该规则。
+
+### 4. 使用 systemd 守护进程
 
 创建 `/etc/systemd/system/money-tracker.service`：
 
@@ -198,8 +312,11 @@ After=network.target
 Type=simple
 User=www-data
 WorkingDirectory=/opt/money-tracker
+# 加载 .env 配置文件（- 前缀表示文件可缺失，不影响启动）
+EnvironmentFile=-/opt/money-tracker/.env
 Environment=NODE_ENV=production
 Environment=PORT=3001
+# HOST=0.0.0.0  # 若需绑定具体网卡，取消注释并设置
 ExecStart=/usr/bin/npm start
 Restart=on-failure
 RestartSec=5
@@ -230,7 +347,7 @@ sudo systemctl stop money-tracker      # 停止
 sudo systemctl disable money-tracker   # 取消开机自启
 ```
 
-### 4. Nginx 反向代理（可选）
+### 5. Nginx 反向代理（可选）
 
 如果希望使用 80/443 端口或配置 HTTPS，可加一层 Nginx：
 
@@ -257,7 +374,7 @@ sudo apt-get install -y nginx          # Debian/Ubuntu
 sudo yum install -y nginx              # CentOS/RHEL
 ```
 
-### 5. 防火墙
+### 6. 防火墙
 
 ```bash
 # 仅暴露 80（若用 Nginx）
@@ -272,7 +389,7 @@ sudo ufw enable
 
 > CentOS 默认使用 `firewalld`，命令为 `sudo firewall-cmd --permanent --add-port=3001/tcp && sudo firewall-cmd --reload`。
 
-### 6. 升级与备份
+### 7. 升级、备份与恢复
 
 **升级到新版本**：
 
@@ -296,13 +413,58 @@ npm run build
 sudo systemctl restart money-tracker
 ```
 
-**数据库备份**（服务运行中也可，WAL 模式支持热备份）：
+**定时备份数据库**（备份脚本）：
+
+项目提供定时备份脚本 `scripts/money_db_backup.sh`，使用 `VACUUM INTO` 不停服生成单文件快照：
 
 ```bash
-cp data/money.db data/money-backup-$(date +%Y%m%d-%H%M%S).db
+# 1. 编辑脚本，确认备份路径
+#    修改 DB_DIR 和 BACKUP_DIR 为你的实际目录
+nano scripts/money_db_backup.sh
+
+# 2. 手动执行一次测试
+bash scripts/money_db_backup.sh
+
+# 3. 注册 cron 定时任务（每天凌晨 3 点）
+crontab -e
+# 添加一行：
+0 3 * * * /opt/money-tracker/scripts/money_db_backup.sh
 ```
 
-**清空数据重新初始化**（停止服务后执行）：
+默认配置（实际部署须修改）：
+
+| 变量 | 示例值 | 说明 |
+|------|--------|------|
+| `DB_DIR` | `/opt/money-tracker/data` | 数据库文件所在目录 |
+| `BACKUP_DIR` | `/root/synology/money_db_bak` | 备份文件存放目录 |
+| `RETENTION_DAYS` | `7` | 备份保留天数，超期自动删除 |
+
+**从备份恢复数据库**（恢复脚本）：
+
+使用 `scripts/money_db_restore.sh` 交互式恢复：
+
+```bash
+# 1. 编辑脚本，修改 DEPLOY_DIR 和 BACKUP_DIR 为你的实际目录
+nano scripts/money_db_restore.sh
+
+# 2. 执行恢复（会列出所有可用的备份文件供选择）
+bash scripts/money_db_restore.sh
+```
+
+恢复脚本会：
+
+1. 列出备份目录下所有可用的 `.db` 快照并按时间排序
+2. 提示输入编号选择要恢复的备份
+3. 检查 money-tracker 服务是否在运行（运行中会询问是否停止）
+4. **自动备份当前数据库**到备份目录（`pre-restore-auto-*`），留后悔药
+5. 从备份目录拷贝选中文件到 `data/money.db`
+6. 清理 WAL/SHM 锁文件
+7. 提示手动重启服务
+
+> ⚠ 恢复前必须停止服务（脚本会自动提示并询问操作）。
+> 首次使用恢复脚本前，务必编辑脚本头部的 `DEPLOY_DIR` 和 `BACKUP_DIR` 变量。
+
+**清空数据重新初始化**（重置所有数据，停止服务后执行）：
 
 ```bash
 sudo systemctl stop money-tracker

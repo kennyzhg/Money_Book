@@ -7,8 +7,10 @@ import {
   CreditCard,
   BarChart3,
   FileText,
+  LogOut,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { useAuthStore } from '@/lib/auth';
 import BrandLogo from './BrandLogo';
 
 const navItems = [
@@ -24,6 +26,7 @@ const navItems = [
  * 桌面端：固定左侧边栏（≥ md 断点）
  */
 export default function Sidebar() {
+  const logout = useAuthStore((s) => s.logout);
   return (
     <aside className="hidden h-full w-60 shrink-0 flex-col border-r border-slate-200 bg-white md:flex">
       <div className="flex items-center gap-3 px-6 py-6">
@@ -70,12 +73,14 @@ export default function Sidebar() {
         })}
       </nav>
 
-      <div className="px-6 py-4">
-        <p className="text-xs leading-relaxed text-slate-400">
-          RESTful API
-          <br />
-          <code className="text-slate-500">/api/v1</code>
-        </p>
+      <div className="border-t border-slate-100 px-3 py-3">
+        <button
+          onClick={logout}
+          className="flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium text-slate-500 transition-colors hover:bg-slate-50 hover:text-slate-900"
+        >
+          <LogOut size={18} className="text-slate-400" />
+          <span>退出登录</span>
+        </button>
       </div>
     </aside>
   );

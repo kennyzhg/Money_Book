@@ -82,21 +82,27 @@ class TransactionRepository {
    *
    * 分页参数（page / pageSize）由 service 层归一化后传入；若两者都不提供，
    * 则返回全部匹配记录（保持向后兼容）。
+   *
+   * 安全：LIMIT/OFFSET 已改为命名参数，杜绝 SQL 注入。
    */
   list(query: TransactionQuery = {}): Transaction[] {
     const { whereClause, params } = this.buildFilter(query);
 
+    const allParams: Record<string, unknown> = { ...params };
     let pagination = '';
+
     if (query.page !== undefined && query.pageSize !== undefined) {
       const offset = Math.max(0, (query.page - 1) * query.pageSize);
-      pagination = `LIMIT ${query.pageSize} OFFSET ${offset}`;
+      pagination = `LIMIT :__limit OFFSET :__offset`;
+      allParams.__limit = query.pageSize;
+      allParams.__offset = offset;
     }
 
     const rows = db
       .prepare(
         `SELECT * FROM transactions ${whereClause} ORDER BY date DESC, created_at DESC ${pagination}`,
       )
-      .all(params) as TxRow[];
+      .all(allParams) as TxRow[];
 
     return rows.map(rowToTransaction);
   }

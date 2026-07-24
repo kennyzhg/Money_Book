@@ -18,8 +18,14 @@ import installmentRoutes from './routes/installments.js';
 import fixedExpenseRoutes from './routes/fixedExpenses.js';
 import shoppingPlanRoutes from './routes/shoppingPlans.js';
 import billRoutes from './routes/bills.js';
+import authRoutes from './routes/auth.js';
+import { authenticate } from './middleware/auth.js';
+import { purgeExpiredSessions } from './data/authDb.js';
 
 dotenv.config();
+
+// 启动时清理过期 session
+purgeExpiredSessions();
 
 const app: express.Application = express();
 
@@ -28,7 +34,19 @@ app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 
 /**
- * API v1 路由
+ * 认证路由（开放，不需要鉴权）
+ * /login /logout /check
+ */
+app.use('/api/v1/auth', authRoutes);
+
+/**
+ * 鉴权中间件：从这一行之后的所有 /api/v1/* 都需要登录
+ * 静态资源、SPA、健康检查、/auth 不受影响
+ */
+app.use('/api/v1', authenticate);
+
+/**
+ * API v1 业务路由
  * 所有路径前缀：/api/v1
  */
 app.use('/api/v1/transactions', transactionRoutes);
