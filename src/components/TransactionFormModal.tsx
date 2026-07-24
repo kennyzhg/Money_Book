@@ -35,6 +35,9 @@ export default function TransactionFormModal({
 }: TransactionFormModalProps) {
   const config = useConfigStore((s) => s.config);
   const [form, setForm] = useState<TransactionInput>(emptyInput('expense'));
+  // 金额输入框的原始字符串：保留 "12." / "12.0" 等中间态，
+  // 避免 number 存储 导致小数点被吞
+  const [amountText, setAmountText] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -44,6 +47,7 @@ export default function TransactionFormModal({
     if (initial) {
       const { date, amount, type, category, paymentMethod, note } = initial;
       setForm({ date, amount, type, category, paymentMethod, note });
+      setAmountText(amount ? String(amount) : '');
     } else {
       const expenseCats = selectCategories(config, 'expense');
       const payments = selectPaymentMethods(config);
@@ -52,6 +56,7 @@ export default function TransactionFormModal({
         category: expenseCats[0]?.name ?? '',
         paymentMethod: payments[0]?.name ?? '',
       });
+      setAmountText('');
     }
   }, [open, initial, config]);
 
@@ -66,12 +71,23 @@ export default function TransactionFormModal({
   };
 
   const handleAmountChange = (raw: string) => {
-    const cleaned = raw.replace(/[^\d.]/g, '');
+    // 1. 只保留数字和小数点
+    let cleaned = raw.replace(/[^\d.]/g, '');
+    // 2. 只保留第一个小��点（去掉后续所有点）
+    const firstDot = cleaned.indexOf('.');
+    if (firstDot !== -1) {
+      cleaned =
+        cleaned.slice(0, firstDot + 1) +
+        cleaned.slice(firstDot + 1).replace(/\./g, '');
+    }
+    // 3. 小数部分最多 2 位
     const parts = cleaned.split('.');
-    const normalized =
-      parts.length > 1 ? `${parts[0]}.${parts[1].slice(0, 2)}` : parts[0];
-    // Number(normalized) 在 '.' 或 '' 时返回 NaN，用 || 0 兜底避免输入框显示 "NaN"
-    setForm((f) => ({ ...f, amount: Number(normalized) || 0 }));
+    if (parts.length > 1) {
+      cleaned = `${parts[0]}.${parts[1].slice(0, 2)}`;
+    }
+    // 4. 同步字符串显示值（保留 "12." 等中间态）与数字状态
+    setAmountText(cleaned);
+    setForm((f) => ({ ...f, amount: Number(cleaned) || 0 }));
   };
 
   const handleSubmit = async () => {
@@ -153,7 +169,7 @@ export default function TransactionFormModal({
               <input
                 type="text"
                 inputMode="decimal"
-                value={form.amount === 0 ? '' : String(form.amount)}
+                value={amountText}
                 onChange={(e) => handleAmountChange(e.target.value)}
                 placeholder="0.00"
                 className="h-full w-full bg-transparent text-xl font-semibold tnum text-slate-900 outline-none"
