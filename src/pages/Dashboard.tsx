@@ -186,8 +186,8 @@ function AnnualView() {
           <h2 className="text-sm font-semibold text-slate-900">月度收支趋势</h2>
         </div>
         <MonthlyTrendChart data={overview.months} />
-        <p className="mt-4 border-t border-slate-100 pt-3 text-xs text-slate-400">
-          柱状图展示每月收入（绿）与支出（红），折线为当月结余
+        <p className="mt-6 border-t border-slate-100 pt-4 text-xs text-slate-400">
+          绿线为收入、红线为支出、靛蓝线为结余；结余为负时图表显示为 0，悬停可查看实际数值。点击图例可切换显示。
         </p>
       </section>
 
