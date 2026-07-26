@@ -13,9 +13,16 @@ import {
   ListChecks,
 } from 'lucide-react';
 import type { MonthlyStats, OverviewStats } from '@shared/types';
-import { fetchMonthlyStats, fetchOverview } from '@/api/statistics';
+import { fetchAvailableYears, fetchMonthlyStats, fetchOverview } from '@/api/statistics';
 import { createTransaction } from '@/api/transactions';
-import { currentMonth, formatCurrency, formatMonthLabel, getRecentMonths } from '@/lib/format';
+import {
+  currentMonth,
+  currentYear,
+  formatCurrency,
+  formatMonthLabel,
+  formatYearLabel,
+  getRecentMonths,
+} from '@/lib/format';
 import { useConfigStore } from '@/store/configStore';
 import { cn } from '@/lib/utils';
 import { useIsMobile } from '@/lib/useIsMobile';
@@ -26,7 +33,6 @@ import PaymentBarChart from '@/components/charts/PaymentBarChart';
 import MonthlyTrendChart from '@/components/charts/MonthlyTrendChart';
 import MonthTransactionsList from '@/components/MonthTransactionsList';
 import TransactionFormModal from '@/components/TransactionFormModal';
-import Select from '@/components/Select';
 
 type ViewTab = 'annual' | 'monthly';
 
@@ -117,25 +123,50 @@ function TabButton({ active, onClick, icon, label }: TabButtonProps) {
 
 // ============== 年度视图 ==============
 function AnnualView() {
+  const [year, setYear] = useState(currentYear());
   const [overview, setOverview] = useState<OverviewStats | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const isMobile = useIsMobile();
+  const [years, setYears] = useState<string[]>([]);
+  const yearIndex = years.indexOf(year);
+  const canGoPrevYear = yearIndex >= 0 && yearIndex < years.length - 1;
+  const canGoNextYear = yearIndex > 0;
 
-  const reload = () => {
+  const shiftYear = (delta: number) => {
+    const nextYear = years[yearIndex + delta];
+    if (nextYear) setYear(nextYear);
+  };
+
+  const reload = useCallback(() => {
     setLoading(true);
     setError(null);
-    fetchOverview()
+    fetchOverview(year)
       .then(setOverview)
       .catch((e) => setError(e instanceof Error ? e.message : '加载失败'))
       .finally(() => setLoading(false));
-  };
+  }, [year]);
 
   useEffect(() => {
     reload();
-    const onChange = () => reload();
-    window.addEventListener('transaction:changed', onChange);
-    return () => window.removeEventListener('transaction:changed', onChange);
+    window.addEventListener('transaction:changed', reload);
+    return () => window.removeEventListener('transaction:changed', reload);
+  }, [reload]);
+
+  useEffect(() => {
+    const loadYears = () => {
+      fetchAvailableYears()
+        .then((availableYears) => {
+          setYears(availableYears);
+          setYear((selectedYear) =>
+            availableYears.includes(selectedYear) ? selectedYear : (availableYears[0] ?? selectedYear),
+          );
+        })
+        .catch(() => setYears([]));
+    };
+    loadYears();
+    window.addEventListener('transaction:changed', loadYears);
+    return () => window.removeEventListener('transaction:changed', loadYears);
   }, []);
 
   if (error) {
@@ -145,7 +176,6 @@ function AnnualView() {
     return <DashboardSkeleton />;
   }
 
-  const yearLabel = overview.months[0]?.month?.slice(0, 4) ?? new Date().getFullYear();
   // 年度储蓄率
   const savingRate =
     overview.yearIncome > 0
@@ -154,6 +184,30 @@ function AnnualView() {
 
   return (
     <div className="space-y-4 md:space-y-6">
+      <div className="flex items-center gap-2 md:gap-3">
+        <button
+          onClick={() => shiftYear(1)}
+          disabled={!canGoPrevYear}
+          className="rounded-lg border border-slate-200 bg-white p-2 text-slate-500 transition-colors hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-40"
+          title="上一年"
+          aria-label="上一年"
+        >
+          <ChevronLeft size={16} />
+        </button>
+        <div className="flex h-10 min-w-0 flex-1 items-center justify-center rounded-lg border border-slate-200 bg-white px-3 text-sm font-medium text-slate-700 md:min-w-[160px] md:flex-none">
+          {formatYearLabel(year)}
+        </div>
+        <button
+          onClick={() => shiftYear(-1)}
+          disabled={!canGoNextYear}
+          className="rounded-lg border border-slate-200 bg-white p-2 text-slate-500 transition-colors hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-40"
+          title="下一年"
+          aria-label="下一年"
+        >
+          <ChevronRight size={16} />
+        </button>
+      </div>
+
       {/* 三张摘要卡 */}
       <div className="grid grid-cols-1 gap-3 md:grid-cols-3 md:gap-4">
         <SummaryCard
@@ -161,14 +215,14 @@ function AnnualView() {
           amount={overview.yearIncome}
           icon={TrendingUp}
           tone="emerald"
-          hint={`${yearLabel} 年`}
+          hint={formatYearLabel(year)}
         />
         <SummaryCard
           label="年度支出"
           amount={overview.yearExpense}
           icon={TrendingDown}
           tone="rose"
-          hint={`${yearLabel} 年`}
+          hint={formatYearLabel(year)}
         />
         <SummaryCard
           label="年度结余"
@@ -340,14 +394,8 @@ function MonthlyView() {
         >
           <ChevronLeft size={16} />
         </button>
-        <div className="min-w-0 flex-1 md:min-w-[160px] md:flex-none">
-          <Select value={month} onChange={setMonth} className="w-full">
-            {months.map((m) => (
-              <option key={m} value={m}>
-                {formatMonthLabel(m)}
-              </option>
-            ))}
-          </Select>
+        <div className="flex h-10 min-w-0 flex-1 items-center justify-center rounded-lg border border-slate-200 bg-white px-3 text-sm font-medium text-slate-700 md:min-w-[160px] md:flex-none">
+          {formatMonthLabel(month)}
         </div>
         <button
           onClick={() => shiftMonth(-1)}
