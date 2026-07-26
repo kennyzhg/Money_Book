@@ -54,6 +54,7 @@ export default function Transactions() {
   const [type, setType] = useState<'' | TransactionType>('');
   const [paymentMethod, setPaymentMethod] = useState<string>('');
   const [category, setCategory] = useState<string>('');
+  const [noteKeyword, setNoteKeyword] = useState('');
 
   // 分类选项：根据已选 type 动态过滤；type=空时合并收入+支出两类
   const categoryOptions = useMemo(() => {
@@ -67,6 +68,7 @@ export default function Transactions() {
 
   const [list, setList] = useState<Transaction[]>([]);
   const [total, setTotal] = useState(0);
+  const [summary, setSummary] = useState({ totalIncome: 0, totalExpense: 0 });
   const [page, setPage] = useState(1);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -92,12 +94,14 @@ export default function Transactions() {
       type: type || undefined,
       paymentMethod: paymentMethod || undefined,
       category: category || undefined,
+      noteKeyword: noteKeyword.trim() || undefined,
       page,
       pageSize: PAGE_SIZE,
     })
       .then((res) => {
         setList(res.items);
         setTotal(res.total);
+        setSummary(res.summary);
       })
       .catch((e) => setError(e instanceof Error ? e.message : '加载失败'))
       .finally(() => setLoading(false));
@@ -106,12 +110,12 @@ export default function Transactions() {
   useEffect(() => {
     reload();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [year, month, type, paymentMethod, category, page]);
+  }, [year, month, type, paymentMethod, category, noteKeyword, page]);
 
-  // 筛选条件（year/month/type/paymentMethod/category）变化时重置到第一页
+  // 筛选条件变化时重置到第一页
   useEffect(() => {
     setPage(1);
-  }, [year, month, type, paymentMethod, category]);
+  }, [year, month, type, paymentMethod, category, noteKeyword]);
 
   const { deletingId, remove: handleDelete } = useDeleteTransaction({
     onSuccess: (id) => {
@@ -141,23 +145,14 @@ export default function Transactions() {
     return arr;
   }, [year]);
 
-  // 注意：金额汇总应基于"全部匹配记录"，而非当前页
-  // 由于分页后只拿到当前页 40 条，无法在客户端精确汇总全年/全月
-  // 解决方案：这里展示"当前页汇总"，并加文案明确（避免数据误导）
-  const { totalIncome, totalExpense } = list.reduce(
-    (acc, t) => {
-      if (t.type === 'income') acc.totalIncome += t.amount;
-      else acc.totalExpense += t.amount;
-      return acc;
-    },
-    { totalIncome: 0, totalExpense: 0 },
-  );
+  const { totalIncome, totalExpense } = summary;
 
-  const hasFilter = Boolean(type || paymentMethod || category);
+  const hasFilter = Boolean(type || paymentMethod || category || noteKeyword.trim());
   const resetFilter = () => {
     setType('');
     setPaymentMethod('');
     setCategory('');
+    setNoteKeyword('');
   };
 
   // 移动端：筛选摘要文案
@@ -166,6 +161,7 @@ export default function Transactions() {
     type === 'expense' ? '支出' : type === 'income' ? '收入' : '',
     category,
     paymentMethod,
+    noteKeyword.trim() ? `备注：${noteKeyword.trim()}` : '',
   ].filter(Boolean).join(' · ');
 
   const showPagination = total > PAGE_SIZE;
@@ -289,6 +285,16 @@ export default function Transactions() {
                 </option>
               ))}
             </Select>
+          </div>
+
+          <div className="flex items-center gap-2">
+            <span className="text-xs text-slate-500">备注</span>
+            <input
+              value={noteKeyword}
+              onChange={(e) => setNoteKeyword(e.target.value)}
+              placeholder="搜索备注"
+              className="h-10 w-40 rounded-lg border border-slate-200 bg-white px-3 text-sm text-slate-700 outline-none transition-colors placeholder:text-slate-400 focus:border-blue-400 focus:ring-2 focus:ring-blue-100"
+            />
           </div>
 
           <div className="flex items-center gap-2">
@@ -517,6 +523,8 @@ export default function Transactions() {
           category={category}
           onCategoryChange={setCategory}
           categoryOptions={categoryOptions}
+          noteKeyword={noteKeyword}
+          onNoteKeywordChange={setNoteKeyword}
           paymentMethod={paymentMethod}
           onPaymentMethodChange={setPaymentMethod}
           paymentMethods={paymentMethods}
@@ -669,6 +677,8 @@ interface MobileFilterSheetProps {
   category: string;
   onCategoryChange: (v: string) => void;
   categoryOptions: IconItem[];
+  noteKeyword: string;
+  onNoteKeywordChange: (v: string) => void;
   paymentMethod: string;
   onPaymentMethodChange: (v: string) => void;
   paymentMethods: ReturnType<typeof selectPaymentMethods>;
@@ -690,6 +700,8 @@ function MobileFilterSheet({
   category,
   onCategoryChange,
   categoryOptions,
+  noteKeyword,
+  onNoteKeywordChange,
   paymentMethod,
   onPaymentMethodChange,
   paymentMethods,
@@ -785,6 +797,16 @@ function MobileFilterSheet({
                 </option>
               ))}
             </Select>
+          </div>
+
+          <div>
+            <label className="mb-1.5 block text-xs font-medium text-slate-500">备注搜索</label>
+            <input
+              value={noteKeyword}
+              onChange={(e) => onNoteKeywordChange(e.target.value)}
+              placeholder="输入备注关键字"
+              className="h-10 w-full rounded-lg border border-slate-200 bg-white px-3 text-sm text-slate-700 outline-none transition-colors placeholder:text-slate-400 focus:border-blue-400 focus:ring-2 focus:ring-blue-100"
+            />
           </div>
 
           <div>

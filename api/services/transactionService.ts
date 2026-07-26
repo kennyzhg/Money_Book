@@ -116,10 +116,21 @@ class TransactionService {
     const page = Math.max(1, Math.floor(query.page ?? 1));
     const pageSize = Math.min(200, Math.max(1, Math.floor(query.pageSize ?? DEFAULT_PAGE_SIZE)));
 
-    const items = transactionRepository.list({ ...query, page, pageSize });
-    const total = transactionRepository.count({ ...query, page: undefined, pageSize: undefined });
+    const filters = { ...query, page: undefined, pageSize: undefined };
+    const items = transactionRepository.list({ ...filters, page, pageSize });
+    const total = transactionRepository.count(filters);
+    const summary = transactionRepository.summary(filters);
 
-    return { items, total, page, pageSize };
+    return {
+      items,
+      total,
+      summary: {
+        ...summary,
+        balance: round2(summary.totalIncome - summary.totalExpense),
+      },
+      page,
+      pageSize,
+    };
   }
 
   getById(id: string): Transaction | undefined {

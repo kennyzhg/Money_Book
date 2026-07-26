@@ -40,6 +40,7 @@ export function listTransactions(req: Request, res: Response): void {
     paymentMethod:
       typeof req.query.paymentMethod === 'string' ? req.query.paymentMethod : undefined,
     category: typeof req.query.category === 'string' ? req.query.category : undefined,
+    noteKeyword: typeof req.query.noteKeyword === 'string' ? req.query.noteKeyword : undefined,
     page,
     pageSize,
   };

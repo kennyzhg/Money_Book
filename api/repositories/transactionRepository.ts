@@ -72,6 +72,11 @@ class TransactionRepository {
       conditions.push('category = :category');
       params.category = query.category;
     }
+    const noteKeyword = query.noteKeyword?.trim();
+    if (noteKeyword) {
+      conditions.push("note LIKE :noteKeyword ESCAPE '\\'");
+      params.noteKeyword = `%${noteKeyword.replace(/[\\%_]/g, '\\$&')}%`;
+    }
 
     const whereClause = conditions.length ? `WHERE ${conditions.join(' AND ')}` : '';
     return { whereClause, params };
@@ -116,6 +121,18 @@ class TransactionRepository {
       .prepare(`SELECT COUNT(*) AS n FROM transactions ${whereClause}`)
       .get(params) as { n: number };
     return row.n;
+  }
+
+  summary(query: TransactionQuery = {}): { totalIncome: number; totalExpense: number } {
+    const { whereClause, params } = this.buildFilter(query);
+    return db
+      .prepare(
+        `SELECT
+          COALESCE(SUM(CASE WHEN type = 'income' THEN amount ELSE 0 END), 0) AS totalIncome,
+          COALESCE(SUM(CASE WHEN type = 'expense' THEN amount ELSE 0 END), 0) AS totalExpense
+         FROM transactions ${whereClause}`,
+      )
+      .get(params) as { totalIncome: number; totalExpense: number };
   }
 
   /** 按 id 查找单条 */

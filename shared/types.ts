@@ -42,6 +42,8 @@ export interface TransactionQuery {
   paymentMethod?: string;
   /** 分类过滤（可选，扩展用） */
   category?: string;
+  /** 备注关键词：按包含关系匹配 */
+  noteKeyword?: string;
   /** 页码（从 1 开始，默认 1） */
   page?: number;
   /** 每页条数（默认 40） */
@@ -54,6 +56,12 @@ export interface PaginatedTransactions {
   items: Transaction[];
   /** 满足筛选条件的总记录数 */
   total: number;
+  /** 所有筛选命中记录的收支汇总 */
+  summary: {
+    totalIncome: number;
+    totalExpense: number;
+    balance: number;
+  };
   /** 当前页码（从 1 开始） */
   page: number;
   /** 每页条数 */
