@@ -59,9 +59,21 @@ class StatisticsService {
     };
   }
 
-  /** 全年（或有数据的所有月份）概览 */
-  overview(): OverviewStats {
-    const all = transactionService.list({});
+  /** 返回有交易数据的年份，最早从 2024 年开始 */
+  availableYears(): string[] {
+    return Array.from(
+      new Set(
+        transactionService
+          .list({})
+          .map((transaction) => transaction.date.slice(0, 4))
+          .filter((year) => Number(year) >= 2024),
+      ),
+    ).sort((a, b) => b.localeCompare(a));
+  }
+
+  /** 指定自然年的概览 */
+  overview(year: string): OverviewStats {
+    const all = transactionService.list({ year });
     const cfg = configRepository.getAll();
 
     // 按月份分组，避免对每个月重复查询数据库（原实现的 N+1 问题）
