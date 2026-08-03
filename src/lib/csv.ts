@@ -58,11 +58,11 @@ function parseCsv(text: string): string[][] {
   return rows.filter((r) => r.some((c) => c.trim() !== ''));
 }
 
-/** 标准化类型字段：支持中英文 */
+/** 标准化类型字段：模板使用中文，同时兼容旧版英文模板 */
 function normalizeType(raw: string): TransactionType | null {
   const t = raw.trim().toLowerCase();
-  if (t === 'income' || t === '收入') return 'income';
-  if (t === 'expense' || t === '支出') return 'expense';
+  if (t === '收入' || t === 'income') return 'income';
+  if (t === '支出' || t === 'expense') return 'expense';
   return null;
 }
 
@@ -162,7 +162,7 @@ export function parseTransactionsCsv(text: string): ParseResult {
     if (!type) {
       errors.push({
         row: rowNum,
-        message: `类型字段错误：${typeRaw}（应为 income/expense 或 收入/支出）`,
+        message: `类型字段错误：${typeRaw}（应为 收入 或 支出）`,
       });
       continue;
     }
