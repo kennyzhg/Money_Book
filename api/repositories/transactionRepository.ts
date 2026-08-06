@@ -1,10 +1,11 @@
 import { randomUUID } from 'crypto';
 import type { Transaction, TransactionInput, TransactionQuery } from '../../shared/types.js';
 import { db } from '../data/db.js';
+import { paymentMethodToCode, formatTimestamp } from '../utils/txCode.js';
 
-/** 数据库行结构（snake_case） */
 interface TxRow {
   id: string;
+  code: string | null;
   date: string;
   amount: number;
   type: 'income' | 'expense';
@@ -15,10 +16,10 @@ interface TxRow {
   updated_at: string;
 }
 
-/** 把行记录映射为对外 Transaction（驼峰） */
 function rowToTransaction(row: TxRow): Transaction {
   return {
     id: row.id,
+    code: row.code ?? '',
     date: row.date,
     amount: row.amount,
     type: row.type,
@@ -32,16 +33,13 @@ function rowToTransaction(row: TxRow): Transaction {
 
 /**
  * 数据访问层（Repository）—— SQLite 实现
- *
- * - 方法签名与之前的内存实现保持一致
- * - 业务层（service/controller）完全无感切换
- * - 数据持久化在 data/money.db，重启服务数据保留
  */
 class TransactionRepository {
   /**
-   * 构造 WHERE 子句与参数对象（month / year / type / paymentMethod / category）
+   * 构造 WHERE 子句与参数对象
    *
-   * 过滤优先级：month 优先于 year；若同时提供，year 被忽略。
+   * 过滤：month / year / type / paymentMethod / category / noteKeyword / code
+   * 优先级：month 优先于 year；若同时提供，year 被忽略。
    */
   private buildFilter(query: TransactionQuery): {
     whereClause: string;
@@ -51,11 +49,9 @@ class TransactionRepository {
     const params: Record<string, unknown> = {};
 
     if (query.month) {
-      // month 形如 "2026-07"，date 形如 "2026-07-15"，前缀匹配
       conditions.push('date LIKE :month');
       params.month = `${query.month}%`;
     } else if (query.year) {
-      // year 形如 "2026"，匹配 date 的前 4 位
       conditions.push('date LIKE :year');
       params.year = `${query.year}%`;
     }
@@ -72,6 +68,10 @@ class TransactionRepository {
       conditions.push('category = :category');
       params.category = query.category;
     }
+    if (query.code) {
+      conditions.push('code = :code');
+      params.code = query.code;
+    }
     const noteKeyword = query.noteKeyword?.trim();
     if (noteKeyword) {
       conditions.push("note LIKE :noteKeyword ESCAPE '\\'");
@@ -83,13 +83,35 @@ class TransactionRepository {
   }
 
   /**
-   * 查询列表，支持 month / year / type / paymentMethod / category 过滤 + 分页
+   * 生成下一编号
    *
-   * 分页参数（page / pageSize）由 service 层归一化后传入；若两者都不提供，
-   * 则返回全部匹配记录（保持向后兼容）。
+   * 策略：在 better-sqlite3 同步执行路径下，先查同前缀最大序号 +1，
+   * 同步调用栈内立即 INSERT，杜绝并发窗口。
    *
-   * 安全：LIMIT/OFFSET 已改为命名参数，杜绝 SQL 注入。
+   * 前缀 = `{pmCode}-{timestamp}`，timestamp 精确到秒。
+   * 序号默认 2 位（01-99），同秒内 > 99 条时自然扩展为 3 位（100+），不丢数据。
+   *
+   * 序号提取：按 `prefix + '-'` 之后到字符串末尾整段解析（不再用 SUBSTR 定长偏移），
+   * 兼容 2 位与 3+ 位两种宽度。
    */
+  private generateCode(paymentMethod: string, now: Date): string {
+    const pmCode = paymentMethodToCode(paymentMethod);
+    const ts = formatTimestamp(now);
+    const prefix = `${pmCode}-${ts}`;
+    const prefixWithSep = `${prefix}-`;
+
+    const row = db
+      .prepare(
+        `SELECT MAX(CAST(SUBSTR(code, ?) AS INTEGER)) AS maxSeq
+         FROM transactions
+         WHERE code LIKE ?`,
+      )
+      .get(prefixWithSep.length + 1, `${prefix}-%`) as { maxSeq: number | null } | undefined;
+
+    const nextSeq = (row?.maxSeq ?? 0) + 1;
+    return `${prefixWithSep}${String(nextSeq).padStart(2, '0')}`;
+  }
+
   list(query: TransactionQuery = {}): Transaction[] {
     const { whereClause, params } = this.buildFilter(query);
 
@@ -112,9 +134,6 @@ class TransactionRepository {
     return rows.map(rowToTransaction);
   }
 
-  /**
-   * 统计满足筛选条件的总记录数（用于分页计算）
-   */
   count(query: TransactionQuery = {}): number {
     const { whereClause, params } = this.buildFilter(query);
     const row = db
@@ -135,7 +154,6 @@ class TransactionRepository {
       .get(params) as { totalIncome: number; totalExpense: number };
   }
 
-  /** 按 id 查找单条 */
   findById(id: string): Transaction | undefined {
     const row = db
       .prepare('SELECT * FROM transactions WHERE id = ?')
@@ -143,33 +161,45 @@ class TransactionRepository {
     return row ? rowToTransaction(row) : undefined;
   }
 
-  /** 创建 */
+  /** 按业务编号查找（外部稳定标识符入口） */
+  findByCode(code: string): Transaction | undefined {
+    const row = db
+      .prepare('SELECT * FROM transactions WHERE code = ?')
+      .get(code) as TxRow | undefined;
+    return row ? rowToTransaction(row) : undefined;
+  }
+
   create(input: TransactionInput): Transaction {
-    const now = new Date().toISOString();
+    const now = new Date();
+    const iso = now.toISOString();
     const id = randomUUID();
+    const code = this.generateCode(input.paymentMethod, now);
+
     db.prepare(
-      `INSERT INTO transactions (id, date, amount, type, category, payment_method, note, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      `INSERT INTO transactions (id, code, date, amount, type, category, payment_method, note, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     ).run(
       id,
+      code,
       input.date,
       input.amount,
       input.type,
       input.category,
       input.paymentMethod,
       input.note ?? null,
-      now,
-      now,
+      iso,
+      iso,
     );
+
     return {
       ...input,
       id,
-      createdAt: now,
-      updatedAt: now,
+      code,
+      createdAt: iso,
+      updatedAt: iso,
     };
   }
 
-  /** 更新，返回更新后的记录；不存在返回 undefined */
   update(id: string, input: Partial<TransactionInput>): Transaction | undefined {
     const existing = this.findById(id);
     if (!existing) return undefined;
@@ -177,6 +207,8 @@ class TransactionRepository {
     const merged: Transaction = {
       ...existing,
       ...input,
+      // code 永不变更：始终保持原值，客户端 patch 中的 code 一律忽略
+      code: existing.code,
       id,
       updatedAt: new Date().toISOString(),
     };
@@ -199,23 +231,18 @@ class TransactionRepository {
     return merged;
   }
 
-  /** 删除，返回是否删除成功 */
   delete(id: string): boolean {
     const result = db.prepare('DELETE FROM transactions WHERE id = ?').run(id);
     return result.changes > 0;
   }
 
-  /** 统计某个分类被多少条交易引用（同时匹配 type 避免歧义） */
   countByCategory(type: 'income' | 'expense', name: string): number {
     const row = db
-      .prepare(
-        'SELECT COUNT(*) AS n FROM transactions WHERE type = ? AND category = ?',
-      )
+      .prepare('SELECT COUNT(*) AS n FROM transactions WHERE type = ? AND category = ?')
       .get(type, name) as { n: number };
     return row.n;
   }
 
-  /** 统计某个支付方式被多少条交易引用 */
   countByPaymentMethod(name: string): number {
     const row = db
       .prepare('SELECT COUNT(*) AS n FROM transactions WHERE payment_method = ?')

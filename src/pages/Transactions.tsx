@@ -386,10 +386,11 @@ export default function Transactions() {
         ) : (
           // 桌面端：表格
           <div className="overflow-x-auto scroll-thin">
-            <table className="w-full min-w-[760px] text-sm">
+            <table className="w-full min-w-[860px] text-sm">
               <thead>
                 <tr className="border-b border-slate-100 text-left text-xs text-slate-500">
                   <th className="px-6 py-3 font-medium">日期</th>
+                  <th className="px-6 py-3 font-medium">编号</th>
                   <th className="px-6 py-3 font-medium">分类</th>
                   <th className="px-6 py-3 font-medium">支付方式</th>
                   <th className="px-6 py-3 font-medium">备注</th>
@@ -410,6 +411,11 @@ export default function Transactions() {
                       className="border-b border-slate-50 transition-colors last:border-0 hover:bg-slate-50/60"
                     >
                       <td className="whitespace-nowrap px-6 py-3 text-slate-600">{t.date}</td>
+                      <td className="whitespace-nowrap px-6 py-3">
+                        <code className="rounded bg-slate-100 px-1.5 py-0.5 text-[11px] font-medium text-slate-600 tnum">
+                          {t.code || '-'}
+                        </code>
+                      </td>
                       <td className="px-6 py-3">
                         <div className="flex items-center gap-2">
                           <CategoryIcon
@@ -620,6 +626,11 @@ function MobileTransactionList({
                   <PayIcon size={11} />
                   {t.paymentMethod}
                 </span>
+                {t.code && (
+                  <span className="tnum rounded bg-slate-100 px-1 text-[10px] text-slate-500">
+                    {t.code}
+                  </span>
+                )}
                 {t.note && <span className="truncate">· {t.note}</span>}
               </div>
             </div>

@@ -5,7 +5,7 @@ import type { Transaction } from '../../shared/types.js';
  * 保证仪表盘与图表启动即有内容。
  * createdAt/updatedAt 在仓库初始化时自动补齐。
  */
-type Seed = Omit<Transaction, 'id' | 'createdAt' | 'updatedAt'>;
+type Seed = Omit<Transaction, 'id' | 'code' | 'createdAt' | 'updatedAt'>;
 
 const seedData: Seed[] = [
   // ===== 2026-05 =====

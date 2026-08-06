@@ -137,6 +137,11 @@ class TransactionService {
     return transactionRepository.findById(id);
   }
 
+  /** 按业务编号查找（外部稳定引用入口） */
+  getByCode(code: string): Transaction | undefined {
+    return transactionRepository.findByCode(code);
+  }
+
   create(input: TransactionInput): Transaction {
     const err = validateInput(input);
     if (err) throw new ValidationError(err);

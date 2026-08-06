@@ -21,6 +21,7 @@ export function fetchTransactions(params: TransactionQuery = {}): Promise<Transa
       paymentMethod: params.paymentMethod,
       category: params.category,
       noteKeyword: params.noteKeyword,
+      code: params.code,
     },
   });
 }
@@ -42,6 +43,7 @@ export function fetchTransactionsPaginated(
       paymentMethod: params.paymentMethod,
       category: params.category,
       noteKeyword: params.noteKeyword,
+      code: params.code,
       page: params.page !== undefined ? String(params.page) : undefined,
       pageSize: params.pageSize !== undefined ? String(params.pageSize) : undefined,
     },

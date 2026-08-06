@@ -13,7 +13,7 @@ export default defineConfig({
     tsconfigPaths(),
   ],
   server: {
-    host: true, // 允许局域网设备访问（移动端真机测试）
+    host: true, // 允许局域网���备访问（移动端真机测试）
     port: 5173,
     proxy: {
       '/api': {

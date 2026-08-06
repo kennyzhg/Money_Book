@@ -41,6 +41,7 @@ export function listTransactions(req: Request, res: Response): void {
       typeof req.query.paymentMethod === 'string' ? req.query.paymentMethod : undefined,
     category: typeof req.query.category === 'string' ? req.query.category : undefined,
     noteKeyword: typeof req.query.noteKeyword === 'string' ? req.query.noteKeyword : undefined,
+    code: typeof req.query.code === 'string' ? req.query.code : undefined,
     page,
     pageSize,
   };
@@ -56,9 +57,17 @@ export function listTransactions(req: Request, res: Response): void {
   sendOk(res, data);
 }
 
-/** GET /api/v1/transactions/:id */
+/** GET /api/v1/transactions/:id
+ *
+ * :id 可以是内部 UUID，也可以是业务编号 code。
+ * 判别规则：匹配 `{PM_CODE}-{14位时间戳}-{2位以上序号}` 视为 code 查询，否则按 UUID 处理。
+ * 外部工具通过 `GET /transactions/ZFB-20260806123801-01` 即可稳定引用单条记录，
+ * 无需关心内部 UUID 实现。序号段用 `\d{2,}` 兼容默认 2 位与溢出后的 3+ 位。
+ */
 export function getTransaction(req: Request, res: Response): void {
-  const tx = transactionService.getById(req.params.id);
+  const key = req.params.id;
+  const isCode = /^[A-Za-z0-9]+-\d{14}-\d{2,}$/.test(key);
+  const tx = isCode ? transactionService.getByCode(key) : transactionService.getById(key);
   if (!tx) {
     sendFail(res, '交易不存在', 404);
     return;

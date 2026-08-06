@@ -6,9 +6,15 @@
 /** 交易类型 */
 export type TransactionType = 'income' | 'expense';
 
-/** 交易记录 */
 export interface Transaction {
   id: string;
+  /**
+   * 业务编号：全局唯一、创建时自动生成、创建后不可修改。
+   * 格式：`{支付方式代码}-{YYYYMMDDHHmmss}-{2位序号}`，如 `ZFB-20260806123801-01`
+   * 序号默认 2 位（01-99），同秒内超过 99 条时自然扩展为 3 位（100+），不丢数据。
+   * 供外部工具作为稳定标识符引用，与内部 id（UUID，可能换库变化）解耦。
+   */
+  code: string;
   /** 日期，格式 YYYY-MM-DD */
   date: string;
   /** 金额（正数，保留 2 位小数由后端归一化） */
@@ -27,8 +33,13 @@ export interface Transaction {
   updatedAt: string;
 }
 
-/** 创建 / 更新交易时传入的负载 */
-export type TransactionInput = Omit<Transaction, 'id' | 'createdAt' | 'updatedAt'>;
+/**
+ * 创建 / 更新交易时传入的负载
+ *
+ * 注意：code 是服务端自动生成的，输入负载里排除；
+ * 即便客户端在 patch 里塞了 code，service 层也会忽略（不可修改）。
+ */
+export type TransactionInput = Omit<Transaction, 'id' | 'code' | 'createdAt' | 'updatedAt'>;
 
 /** 列表查询参数 */
 export interface TransactionQuery {
@@ -44,6 +55,11 @@ export interface TransactionQuery {
   category?: string;
   /** 备注关键词：按包含关系匹配 */
   noteKeyword?: string;
+  /**
+   * 业务编号精确过滤：与 list 中其他筛选条件 AND 组合。
+   * 例如 `?code=ZFB-20260806123801-01` 只返回该编号对应的单条记录。
+   */
+  code?: string;
   /** 页码（从 1 开始，默认 1） */
   page?: number;
   /** 每页条数（默认 40） */
