@@ -11,6 +11,8 @@ import {
 import type { TransactionInput } from '@shared/types';
 import { batchCreateTransactions, type BatchImportResult } from '@/api/transactions';
 import { parseTransactionsCsv, readFileAsText } from '@/lib/csv';
+import { cn } from '@/lib/utils';
+import BillImportPanel from './BillImportPanel';
 
 interface ImportTransactionsModalProps {
   open: boolean;
@@ -19,6 +21,14 @@ interface ImportTransactionsModalProps {
 }
 
 type Stage = 'idle' | 'parsed' | 'importing' | 'done' | 'error';
+
+/** 导入方式：系统模板 CSV / 支付宝、微信原始账单 */
+type Mode = 'template' | 'bill';
+
+const MODES: Array<{ key: Mode; label: string }> = [
+  { key: 'template', label: '模板 CSV' },
+  { key: 'bill', label: '支付宝 / 微信账单' },
+];
 
 interface ParsedData {
   transactions: TransactionInput[];
@@ -32,6 +42,7 @@ export default function ImportTransactionsModal({
   onSuccess,
 }: ImportTransactionsModalProps) {
   const inputRef = useRef<HTMLInputElement>(null);
+  const [mode, setMode] = useState<Mode>('template');
   const [stage, setStage] = useState<Stage>('idle');
   const [parsed, setParsed] = useState<ParsedData | null>(null);
   const [result, setResult] = useState<BatchImportResult | null>(null);
@@ -91,7 +102,7 @@ export default function ImportTransactionsModal({
         className="absolute inset-0 bg-slate-900/40 backdrop-blur-sm"
         onClick={handleClose}
       />
-      <div className="animate-fade-in-up relative flex max-h-[92vh] w-full flex-col overflow-hidden rounded-t-2xl bg-white shadow-xl md:max-h-[90vh] md:max-w-lg md:rounded-2xl">
+      <div className={cn('animate-fade-in-up relative flex max-h-[92vh] w-full flex-col overflow-hidden rounded-t-2xl bg-white shadow-xl md:max-h-[90vh] md:rounded-2xl', mode === 'bill' ? 'md:max-w-2xl' : 'md:max-w-lg')}>
         {/* Header */}
         <div className="flex shrink-0 items-center justify-between border-b border-slate-100 px-4 py-4 md:px-6">
           <h2 className="text-base font-semibold text-slate-900">批量导入账单</h2>
@@ -104,11 +115,36 @@ export default function ImportTransactionsModal({
           </button>
         </div>
 
+        {/* 导入方式切换 */}
+        <div className="shrink-0 px-4 pt-4 md:px-6">
+          <div className="grid grid-cols-2 gap-1 rounded-xl bg-slate-100 p-1">
+            {MODES.map((m) => (
+              <button
+                key={m.key}
+                onClick={() => {
+                  reset();
+                  setMode(m.key);
+                }}
+                className={cn(
+                  'rounded-lg px-3 py-1.5 text-sm font-medium transition-colors',
+                  mode === m.key ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-500 hover:text-slate-700',
+                )}
+              >
+                {m.label}
+              </button>
+            ))}
+          </div>
+        </div>
+
         {/* Body */}
         <div
           className="flex-1 space-y-5 overflow-y-auto px-4 py-5 md:px-6"
           style={{ paddingBottom: 'max(1.25rem, env(safe-area-inset-bottom, 0px))' }}
         >
+          {mode === 'bill' ? (
+            <BillImportPanel onSuccess={onSuccess} onClose={handleClose} />
+          ) : (
+          <>
           {/* 顶部说明 + 下载模板 */}
           <div className="rounded-xl bg-blue-50 px-4 py-3 text-sm text-blue-700">
             <div className="flex items-start gap-2">
@@ -300,6 +336,8 @@ export default function ImportTransactionsModal({
                 完成
               </button>
             </div>
+          )}
+          </>
           )}
         </div>
       </div>

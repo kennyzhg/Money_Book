@@ -57,3 +57,6 @@ desktop.ini
 
 # ============ WorkBuddy 工作数据 ============
 .workbuddy/
+
+# 账单导入本地规则（含个人隐私，不入库）
+shared/billImport.local.ts

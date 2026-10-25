@@ -13,7 +13,8 @@
     "check": "tsc --noEmit",
     "server:dev": "nodemon",
     "dev": "concurrently \"npm run client:dev\" \"npm run server:dev\"",
-    "gen-password": "tsx scripts/gen-password-hash.ts"
+    "gen-password": "tsx scripts/gen-password-hash.ts",
+    "import:bill": "tsx scripts/import-bill.ts"
   },
   "dependencies": {
     "bcryptjs": "^2.4.3",
