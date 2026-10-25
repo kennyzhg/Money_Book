@@ -10,6 +10,10 @@ class InstallmentController {
     sendOk(res, installmentService.list());
   }
 
+  issues(_req: Request, res: Response): void {
+    sendOk(res, installmentService.postingIssues());
+  }
+
   get(req: Request, res: Response): void {
     const item = installmentService.getById(req.params.id);
     if (!item) {
@@ -106,6 +110,19 @@ class InstallmentController {
       sendOk(res, result, `入账 ${result.inserted} 笔，跳过 ${result.skipped} 笔`);
     } catch (e) {
       sendFail(res, e instanceof Error ? e.message : '入账失败', 500);
+    }
+  }
+
+  postEarly(req: Request, res: Response): void {
+    try {
+      const paymentMethod = typeof req.body.paymentMethod === 'string' ? req.body.paymentMethod : '';
+      const today = new Date();
+      const date = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
+      const result = installmentService.postEarlyTransaction(req.params.id, paymentMethod, date);
+      sendOk(res, result, result.inserted ? '已提前入账' : '本月已入账');
+    } catch (e) {
+      const status = e instanceof ValidationError ? 400 : e instanceof NotFoundError ? 404 : 500;
+      sendFail(res, e instanceof Error ? e.message : '入账失败', status);
     }
   }
 }

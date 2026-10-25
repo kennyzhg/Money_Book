@@ -60,6 +60,14 @@ function migrateTransactionsAddCode(): void {
   db.exec('CREATE UNIQUE INDEX IF NOT EXISTS idx_transactions_code ON transactions(code)');
 }
 
+/** 为历史分期补每月还款日；旧记录沿用原先固定的 15 日。 */
+function migrateInstallmentsAddDueDay(): void {
+  const cols = db.prepare('PRAGMA table_info(installments)').all() as Array<{ name: string }>;
+  if (!cols.some((c) => c.name === 'due_day')) {
+    db.exec('ALTER TABLE installments ADD COLUMN due_day INTEGER NOT NULL DEFAULT 15');
+  }
+}
+
 /**
  * 建表（幂等）。若已存在则跳过。
  */
@@ -112,6 +120,7 @@ export function initSchema(): void {
       annual_rate     REAL NOT NULL,
       term_months     INTEGER NOT NULL,
       start_month     TEXT NOT NULL,
+      due_day         INTEGER NOT NULL DEFAULT 15 CHECK (due_day BETWEEN 1 AND 28),
       category        TEXT NOT NULL,
       payment_method  TEXT NOT NULL,
       monthly_payment REAL NOT NULL,
@@ -237,4 +246,5 @@ export function seedIfEmpty(): void {
 // 模块加载即执行
 initSchema();
 migrateTransactionsAddCode();
+migrateInstallmentsAddDueDay();
 seedIfEmpty();

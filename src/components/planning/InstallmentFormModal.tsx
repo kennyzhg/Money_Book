@@ -35,6 +35,7 @@ export default function InstallmentFormModal({ open, initial, onClose, onSubmit 
     annualRate: 0,
     termMonths: 12,
     startMonth: currentMonth(),
+    dueDay: 15,
     category: '',
     paymentMethod: '',
     note: '',
@@ -56,6 +57,7 @@ export default function InstallmentFormModal({ open, initial, onClose, onSubmit 
         annualRate: initial.annualRate,
         termMonths: initial.termMonths,
         startMonth: initial.startMonth,
+        dueDay: initial.dueDay,
         category: initial.category,
         paymentMethod: initial.paymentMethod,
         status: initial.status,
@@ -182,6 +184,14 @@ export default function InstallmentFormModal({ open, initial, onClose, onSubmit 
               onChange={(e) => setForm((f) => ({ ...f, startMonth: e.target.value }))}
               className="h-10 w-full rounded-lg border border-slate-200 bg-white px-3 text-sm text-slate-700 outline-none focus:border-blue-400 focus:ring-2 focus:ring-blue-100"
             />
+          </FormField>
+
+          <FormField label="每月还款日（信用卡最后还款日）">
+            <Select value={String(form.dueDay)} onChange={(v) => setForm((f) => ({ ...f, dueDay: Number(v) }))}>
+              {Array.from({ length: 28 }, (_, i) => i + 1).map((day) => (
+                <option key={day} value={day}>{day} 日</option>
+              ))}
+            </Select>
           </FormField>
 
           <div className="grid grid-cols-2 gap-3">

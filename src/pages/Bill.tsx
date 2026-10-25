@@ -1,11 +1,12 @@
 import { useCallback, useEffect, useState } from 'react';
-import { FileText, Loader2, ChevronLeft, ChevronRight, TrendingUp, TrendingDown, Minus } from 'lucide-react';
-import type { BillOverview } from '@shared/types';
+import { FileText, Loader2, ChevronLeft, ChevronRight, TrendingUp, TrendingDown, Minus, AlertTriangle } from 'lucide-react';
+import type { BillOverview, InstallmentPostingIssue } from '@shared/types';
 import PageHeader from '@/components/PageHeader';
 import EmptyState from '@/components/EmptyState';
 import Select from '@/components/Select';
 import CategoryIcon from '@/components/CategoryIcon';
 import { fetchBillOverview } from '@/api/bills';
+import { fetchInstallmentIssues } from '@/api/installments';
 import {
   currentMonth,
   formatCurrency,
@@ -19,6 +20,7 @@ export default function Bill() {
   const [bill, setBill] = useState<BillOverview | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [issues, setIssues] = useState<InstallmentPostingIssue[]>([]);
 
   const reload = useCallback(async () => {
     setLoading(true);
@@ -35,6 +37,10 @@ export default function Bill() {
   useEffect(() => {
     reload();
   }, [reload]);
+
+  useEffect(() => {
+    fetchInstallmentIssues().then(setIssues).catch(() => undefined);
+  }, []);
 
   const shift = (delta: number) => {
     const [y, m] = month.split('-').map(Number);
@@ -59,6 +65,13 @@ export default function Bill() {
           <ChevronRight size={16} />
         </button>
       </div>
+
+      {issues.length > 0 && (
+        <div className="mb-4 flex gap-2 rounded-xl bg-amber-50 px-4 py-3 text-sm text-amber-700 ring-1 ring-amber-100 md:mb-6">
+          <AlertTriangle className="mt-0.5 shrink-0" size={16} />
+          <span>分期自动入账将跳过：{issues.map((i) => `「${i.name}」缺少${i.fields.join('、')}`).join('；')}。请到财务规划补全。</span>
+        </div>
+      )}
 
       {loading ? (
         <div className="flex h-40 items-center justify-center text-slate-400">

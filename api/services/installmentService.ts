@@ -2,9 +2,12 @@ import type {
   Installment,
   InstallmentInput,
   InstallmentMethod,
+  InstallmentPostingIssue,
+  InstallmentWithRemaining,
 } from '../../shared/types.js';
 import { installmentRepository } from '../repositories/installmentRepository.js';
 import { transactionRepository } from '../repositories/transactionRepository.js';
+import { transactionService } from './transactionService.js';
 import { configRepository } from '../repositories/configRepository.js';
 import { round2 } from '../utils/math.js';
 import { ValidationError, NotFoundError } from '../utils/errors.js';
@@ -91,6 +94,9 @@ function validateInput(input: Partial<InstallmentInput>): string | null {
   if (input.startMonth !== undefined && !/^\d{4}-\d{2}$/.test(input.startMonth)) {
     return 'startMonth 必须为 YYYY-MM 格式';
   }
+  if (input.dueDay !== undefined && (!Number.isInteger(input.dueDay) || input.dueDay < 1 || input.dueDay > 28)) {
+    return 'dueDay 必须是 1 到 28 的整数';
+  }
   if (input.category !== undefined) {
     const valid = new Set(configRepository.getCategories('expense').map((c) => c.name));
     if (!valid.has(input.category)) return `category "${input.category}" 不是有效的支出分类`;
@@ -103,8 +109,11 @@ function validateInput(input: Partial<InstallmentInput>): string | null {
 }
 
 class InstallmentService {
-  list(): Installment[] {
-    return installmentRepository.list();
+  list(): InstallmentWithRemaining[] {
+    return installmentRepository.list().map((inst) => ({
+      ...inst,
+      remainingPayment: Math.max(0, round2(inst.totalPayment - transactionRepository.totalInstallmentPayments(inst.id))),
+    }));
   }
 
   getById(id: string): Installment | undefined {
@@ -114,6 +123,7 @@ class InstallmentService {
   create(input: InstallmentInput): Installment {
     if (!input.name?.trim()) throw new ValidationError('name 不能为空');
     if (!input.startMonth) throw new ValidationError('startMonth 不能为空');
+    if (input.dueDay === undefined) input.dueDay = 15;
     if (!input.category) throw new ValidationError('category 不能为空');
     if (!input.paymentMethod) throw new ValidationError('paymentMethod 不能为空');
     const err = validateInput(input);
@@ -137,6 +147,7 @@ class InstallmentService {
       annualRate: patch.annualRate ?? existing.annualRate,
       termMonths: patch.termMonths ?? existing.termMonths,
       startMonth: patch.startMonth ?? existing.startMonth,
+      dueDay: patch.dueDay ?? existing.dueDay,
       category: patch.category ?? existing.category,
       paymentMethod: patch.paymentMethod ?? existing.paymentMethod,
       status: patch.status ?? existing.status,
@@ -163,6 +174,48 @@ class InstallmentService {
     if (!ok) throw new NotFoundError('分期记录不存在');
   }
 
+  /** 返回会导致自动入账缺少分类或付款方式的活动分期。 */
+  postingIssues(): InstallmentPostingIssue[] {
+    const categories = new Set(configRepository.getCategories('expense').map((c) => c.name));
+    const payments = new Set(configRepository.getPaymentMethods().map((p) => p.name));
+    return installmentRepository.list().flatMap((inst) => {
+      if (inst.status !== 'active') return [];
+      const fields = [
+        ...(categories.has(inst.category) ? [] : ['支出分类']),
+        ...(payments.has(inst.paymentMethod) ? [] : ['默认付款方式']),
+      ];
+      return fields.length ? [{ id: inst.id, name: inst.name, fields }] : [];
+    });
+  }
+
+  private createTransaction(inst: Installment, paymentMethod: string, date: string): void {
+    const amount = inst.method === 'equal_payment'
+      ? inst.monthlyPayment
+      : round2(inst.totalPayment / inst.termMonths);
+    transactionService.create({
+      date,
+      amount,
+      type: 'expense',
+      category: inst.category,
+      paymentMethod,
+      note: `${inst.name} · ${date.slice(0, 7)} 还款 [installment:${inst.id}:${date.slice(0, 7)}]`,
+    });
+  }
+
+  /** 提前还款：按实际付款方式和当天日期手动入账，同月不会重复。 */
+  postEarlyTransaction(id: string, paymentMethod: string, today: string): { inserted: boolean } {
+    const inst = installmentRepository.findById(id);
+    if (!inst || inst.status !== 'active') throw new NotFoundError('进行中的分期记录不存在');
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(today)) throw new ValidationError('today 必须为 YYYY-MM-DD 格式');
+    const month = today.slice(0, 7);
+    const tag = `[installment:${id}:${month}]`;
+    if (transactionRepository.list({ month, type: 'expense' }).some((t) => t.note?.includes(tag))) {
+      return { inserted: false };
+    }
+    this.createTransaction(inst, paymentMethod, today);
+    return { inserted: true };
+  }
+
   /**
    * 将某个月的分期还款写入交易记录（自动计入当月支出）
    * - 对每个 active 且在该月还款周期内的分期生成一笔支出交易
@@ -184,25 +237,50 @@ class InstallmentService {
 
     let inserted = 0;
     let skipped = 0;
+    const invalidIds = new Set(this.postingIssues().map((issue) => issue.id));
     for (const inst of active) {
       const tag = `[installment:${inst.id}:${month}]`;
       if (tagSet.has(tag) || existing.some((t) => t.note?.includes(tag))) {
         skipped += 1;
         continue;
       }
+      if (invalidIds.has(inst.id)) {
+        skipped += 1;
+        continue;
+      }
       // 等额本息按每月还款额；等额本金简化为月均（总还款/期数）
-      const monthlyAmount =
-        inst.method === 'equal_payment'
-          ? inst.monthlyPayment
-          : round2(inst.totalPayment / inst.termMonths);
-      transactionRepository.create({
-        date: `${month}-15`,
-        amount: monthlyAmount,
-        type: 'expense',
-        category: inst.category,
-        paymentMethod: inst.paymentMethod,
-        note: `${inst.name} · ${month} 还款 ${tag}`,
-      });
+      this.createTransaction(inst, inst.paymentMethod, `${month}-15`);
+      inserted += 1;
+    }
+    return { inserted, skipped };
+  }
+
+  /**
+   * 将已到还款日的当月分期写入账单；补跑时保留实际还款日，幂等标签沿用月度入账。
+   */
+  postDueTransactions(today: string): { inserted: number; skipped: number } {
+    const match = /^(\d{4}-\d{2})-(\d{2})$/.exec(today);
+    if (!match) throw new ValidationError('today 必须为 YYYY-MM-DD 格式');
+    const [, month, dayText] = match;
+    const day = Number(dayText);
+    const active = installmentRepository.listActiveByMonth(month);
+    const existing = transactionRepository.list({ month, type: 'expense' });
+    let inserted = 0;
+    let skipped = 0;
+    const invalidIds = new Set(this.postingIssues().map((issue) => issue.id));
+
+    for (const inst of active) {
+      if (inst.dueDay > day) continue;
+      const tag = `[installment:${inst.id}:${month}]`;
+      if (existing.some((t) => t.note?.includes(tag))) {
+        skipped += 1;
+        continue;
+      }
+      if (invalidIds.has(inst.id)) {
+        skipped += 1;
+        continue;
+      }
+      this.createTransaction(inst, inst.paymentMethod, `${month}-${String(inst.dueDay).padStart(2, '0')}`);
       inserted += 1;
     }
     return { inserted, skipped };

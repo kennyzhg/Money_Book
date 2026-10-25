@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useState } from 'react';
-import { Plus, Pencil, Trash2, Loader2, Repeat, ShoppingBag, CreditCard } from 'lucide-react';
+import { Plus, Pencil, Trash2, Loader2, Repeat, ShoppingBag, CreditCard, WalletCards, X } from 'lucide-react';
 import type {
   Installment,
+  InstallmentWithRemaining,
   InstallmentInput,
   FixedExpense,
   FixedExpenseInput,
@@ -13,9 +14,10 @@ import PageHeader from '@/components/PageHeader';
 import EmptyState from '@/components/EmptyState';
 import InstallmentCalculator from '@/components/planning/InstallmentCalculator';
 import InstallmentFormModal from '@/components/planning/InstallmentFormModal';
+import Select from '@/components/Select';
 import FixedExpenseFormModal from '@/components/planning/FixedExpenseFormModal';
 import ShoppingPlanFormModal from '@/components/planning/ShoppingPlanFormModal';
-import { useConfigStore } from '@/store/configStore';
+import { selectPaymentMethods, useConfigStore } from '@/store/configStore';
 import { formatCurrency, formatMonthLabel } from '@/lib/format';
 import { cn } from '@/lib/utils';
 import {
@@ -24,6 +26,7 @@ import {
   updateInstallment,
   deleteInstallment,
   postInstallmentsMonthly,
+  postInstallmentEarly,
 } from '@/api/installments';
 import {
   fetchFixedExpenses,
@@ -91,12 +94,13 @@ function TabButton({ active, onClick, icon, label }: TabButtonProps) {
 // 分期 Tab
 // ============================================================
 function InstallmentsTab() {
-  const [list, setList] = useState<Installment[]>([]);
+  const [list, setList] = useState<InstallmentWithRemaining[]>([]);
   const [loading, setLoading] = useState(true);
   const [modalOpen, setModalOpen] = useState(false);
   const [editing, setEditing] = useState<Installment | null>(null);
   const [posting, setPosting] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
+  const [postingItem, setPostingItem] = useState<Installment | null>(null);
 
   const reload = useCallback(async () => {
     setLoading(true);
@@ -185,6 +189,7 @@ function InstallmentsTab() {
                   await deleteInstallment(it.id);
                   reload();
                 }}
+                onPostEarly={() => setPostingItem(it)}
               />
             ))}
           </div>
@@ -199,6 +204,15 @@ function InstallmentsTab() {
           if (editing) await updateInstallment(editing.id, input);
           else await createInstallment(input);
           reload();
+        }}
+      />
+      <EarlyPostModal
+        item={postingItem}
+        onClose={() => setPostingItem(null)}
+        onSubmit={async (paymentMethod) => {
+          const result = await postInstallmentEarly(postingItem!.id, paymentMethod);
+          setToast(result.inserted ? '已按所选付款方式提前入账' : '本月已存在该分期还款记录');
+          setPostingItem(null);
         }}
       />
     </div>
@@ -226,10 +240,12 @@ function InstallmentCard({
   item,
   onEdit,
   onDelete,
+  onPostEarly,
 }: {
-  item: Installment;
+  item: InstallmentWithRemaining;
   onEdit: () => void;
   onDelete: () => void;
+  onPostEarly: () => void;
 }) {
   return (
     <div className="rounded-xl border border-slate-100 p-4 transition-shadow hover:shadow-sm">
@@ -242,18 +258,56 @@ function InstallmentCard({
             </span>
           </div>
           <p className="mt-0.5 text-xs text-slate-400">
-            {KIND_LABEL[item.kind]} · {item.method === 'equal_payment' ? '等额本息' : '等额本金'} · 起始 {formatMonthLabel(item.startMonth)}
+            {KIND_LABEL[item.kind]} · {item.method === 'equal_payment' ? '等额本息' : '等额本金'} · 每月 {item.dueDay} 日还款
           </p>
         </div>
         <div className="flex shrink-0 items-center gap-1">
+          <IconBtn onClick={onPostEarly} title="提前入账"><WalletCards size={14} /></IconBtn>
           <IconBtn onClick={onEdit} title="编辑"><Pencil size={14} /></IconBtn>
           <IconBtn onClick={onDelete} title="删除" danger><Trash2 size={14} /></IconBtn>
         </div>
       </div>
-      <div className="mt-3 grid grid-cols-3 gap-2 text-xs">
+      <div className="mt-3 grid grid-cols-2 gap-2 text-xs md:grid-cols-4">
         <Metric label="本金" value={formatCurrency(item.principal)} />
         <Metric label="每月" value={formatCurrency(item.monthlyPayment)} tone="blue" />
         <Metric label="总利息" value={formatCurrency(item.totalInterest)} tone="amber" />
+        <Metric label="剩余应还" value={formatCurrency(item.remainingPayment)} tone="rose" />
+      </div>
+    </div>
+  );
+}
+
+function EarlyPostModal({ item, onClose, onSubmit }: { item: Installment | null; onClose: () => void; onSubmit: (paymentMethod: string) => Promise<void> }) {
+  const config = useConfigStore((s) => s.config);
+  const payments = selectPaymentMethods(config);
+  const [paymentMethod, setPaymentMethod] = useState('');
+  const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (item) {
+      setPaymentMethod(item.paymentMethod);
+      setError(null);
+    }
+  }, [item]);
+  if (!item) return null;
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-end justify-center p-0 md:items-center md:p-4">
+      <div className="absolute inset-0 bg-slate-900/40" onClick={onClose} />
+      <div className="relative w-full rounded-t-2xl bg-white p-5 shadow-xl md:max-w-sm md:rounded-2xl">
+        <div className="flex items-center justify-between"><h2 className="text-base font-semibold">提前入账</h2><button onClick={onClose} className="text-slate-400"><X size={18} /></button></div>
+        <p className="mt-2 text-sm text-slate-500">{item.name}，请选择实际还款付款方式。</p>
+        <Select value={paymentMethod} onChange={setPaymentMethod} className="mt-4 w-full">
+          <option value="">请选择付款方式</option>
+          {payments.map((payment) => <option key={payment.name} value={payment.name}>{payment.name}</option>)}
+        </Select>
+        {error && <p className="mt-2 text-xs text-rose-600">{error}</p>}
+        <button
+          disabled={submitting || !paymentMethod}
+          onClick={async () => { setSubmitting(true); setError(null); try { await onSubmit(paymentMethod); } catch (e) { setError(e instanceof Error ? e.message : '入账失败'); } finally { setSubmitting(false); } }}
+          className="mt-4 w-full rounded-lg bg-blue-600 py-2 text-sm font-medium text-white disabled:opacity-50"
+        >{submitting ? '入账中…' : '确认入账'}</button>
       </div>
     </div>
   );
@@ -558,8 +612,8 @@ function PlanCard({
 // ============================================================
 // 共享小组件
 // ============================================================
-function Metric({ label, value, tone = 'slate' }: { label: string; value: string; tone?: 'slate' | 'blue' | 'amber' }) {
-  const c = { slate: 'text-slate-700', blue: 'text-blue-700', amber: 'text-amber-700' }[tone];
+function Metric({ label, value, tone = 'slate' }: { label: string; value: string; tone?: 'slate' | 'blue' | 'amber' | 'rose' }) {
+  const c = { slate: 'text-slate-700', blue: 'text-blue-700', amber: 'text-amber-700', rose: 'text-rose-700' }[tone];
   return (
     <div className="rounded-lg bg-slate-50 px-2.5 py-1.5">
       <p className="text-[10px] text-slate-400">{label}</p>

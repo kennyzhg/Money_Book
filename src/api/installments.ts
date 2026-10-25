@@ -1,8 +1,8 @@
-import type { Installment, InstallmentInput } from '@shared/types';
+import type { Installment, InstallmentInput, InstallmentPostingIssue, InstallmentWithRemaining } from '@shared/types';
 import { request } from './client';
 
-export function fetchInstallments(): Promise<Installment[]> {
-  return request<Installment[]>('/installments');
+export function fetchInstallments(): Promise<InstallmentWithRemaining[]> {
+  return request<InstallmentWithRemaining[]>('/installments');
 }
 
 export function fetchInstallment(id: string): Promise<Installment> {
@@ -39,4 +39,12 @@ export function postInstallmentsMonthly(
   month: string,
 ): Promise<{ inserted: number; skipped: number }> {
   return request('/installments/post-monthly', { method: 'POST', query: { month } });
+}
+
+export function fetchInstallmentIssues(): Promise<InstallmentPostingIssue[]> {
+  return request<InstallmentPostingIssue[]>('/installments/issues');
+}
+
+export function postInstallmentEarly(id: string, paymentMethod: string): Promise<{ inserted: boolean }> {
+  return request<{ inserted: boolean }>(`/installments/${id}/post-early`, { method: 'POST', body: { paymentMethod } });
 }

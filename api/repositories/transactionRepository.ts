@@ -154,6 +154,15 @@ class TransactionRepository {
       .get(params) as { totalIncome: number; totalExpense: number };
   }
 
+  /** 已入账的某笔分期还款总额（以不可见幂等标签为准）。 */
+  totalInstallmentPayments(installmentId: string): number {
+    const row = db.prepare(
+      `SELECT COALESCE(SUM(amount), 0) AS total FROM transactions
+       WHERE type = 'expense' AND note LIKE ?`,
+    ).get(`%[installment:${installmentId}:%]`) as { total: number };
+    return row.total;
+  }
+
   findById(id: string): Transaction | undefined {
     const row = db
       .prepare('SELECT * FROM transactions WHERE id = ?')

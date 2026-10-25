@@ -190,6 +190,8 @@ export interface Installment {
   termMonths: number;
   /** 起始月份 YYYY-MM（第一期还款月） */
   startMonth: string;
+  /** 每月还款日（1–28；信用卡最后还款日） */
+  dueDay: number;
   /** 关联的分类名称（写入交易时使用，必须为支出分类） */
   category: string;
   /** 关联的支付方式名称 */
@@ -208,6 +210,11 @@ export interface Installment {
   updatedAt: string;
 }
 
+/** 分期及已按该分期标签入账后动态计算的剩余应还金额 */
+export interface InstallmentWithRemaining extends Installment {
+  remainingPayment: number;
+}
+
 /** 创建/更新分期时传入的负载 */
 export type InstallmentInput = Omit<
   Installment,
@@ -222,6 +229,13 @@ export type InstallmentInput = Omit<
   /** 创建时可显式指定状态（默认 active） */
   status?: InstallmentStatus;
 };
+
+/** 无法自动入账的分期配置问题 */
+export interface InstallmentPostingIssue {
+  id: string;
+  name: string;
+  fields: string[];
+}
 
 /** 固定支出记录（每月可预见的固定开销） */
 export interface FixedExpense {

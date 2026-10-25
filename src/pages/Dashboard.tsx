@@ -11,6 +11,7 @@ import {
   Calendar,
   CalendarRange,
   ListChecks,
+  AlertTriangle,
 } from 'lucide-react';
 import type { MonthlyStats, OverviewStats } from '@shared/types';
 import { fetchAvailableYears, fetchMonthlyStats, fetchOverview } from '@/api/statistics';
@@ -33,6 +34,7 @@ import PaymentBarChart from '@/components/charts/PaymentBarChart';
 import MonthlyTrendChart from '@/components/charts/MonthlyTrendChart';
 import MonthTransactionsList from '@/components/MonthTransactionsList';
 import TransactionFormModal from '@/components/TransactionFormModal';
+import { fetchInstallmentIssues } from '@/api/installments';
 
 type ViewTab = 'annual' | 'monthly';
 
@@ -41,10 +43,15 @@ export default function Dashboard() {
   const [tab, setTab] = useState<ViewTab>('annual');
   const [modalOpen, setModalOpen] = useState(false);
   const { load: loadConfig } = useConfigStore();
+  const [installmentIssues, setInstallmentIssues] = useState<string[]>([]);
 
   useEffect(() => {
     loadConfig().catch(() => undefined);
   }, [loadConfig]);
+
+  useEffect(() => {
+    fetchInstallmentIssues().then((issues) => setInstallmentIssues(issues.map((i) => `「${i.name}」缺少${i.fields.join('、')}`))).catch(() => undefined);
+  }, []);
 
   return (
     <div>
@@ -61,6 +68,13 @@ export default function Dashboard() {
           </button>
         }
       />
+
+      {installmentIssues.length > 0 && (
+        <div className="mb-4 flex gap-2 rounded-xl bg-amber-50 px-4 py-3 text-sm text-amber-700 ring-1 ring-amber-100 md:mb-6">
+          <AlertTriangle className="mt-0.5 shrink-0" size={16} />
+          <span>分期自动入账待处理：{installmentIssues.join('；')}。请到“财务规划”修正配置。</span>
+        </div>
+      )}
 
       {/* Tab 切换：移动端占满宽度 */}
       <div className="mb-4 inline-flex w-full rounded-xl bg-slate-100 p-1 md:mb-6 md:w-auto">

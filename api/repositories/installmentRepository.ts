@@ -15,6 +15,7 @@ interface InstallmentRow {
   annual_rate: number;
   term_months: number;
   start_month: string;
+  due_day: number;
   category: string;
   payment_method: string;
   monthly_payment: number;
@@ -36,6 +37,7 @@ function rowToInstallment(row: InstallmentRow): Installment {
     annualRate: row.annual_rate,
     termMonths: row.term_months,
     startMonth: row.start_month,
+    dueDay: row.due_day,
     category: row.category,
     paymentMethod: row.payment_method,
     monthlyPayment: row.monthly_payment,
@@ -88,10 +90,10 @@ class InstallmentRepository {
     const id = randomUUID();
     db.prepare(
       `INSERT INTO installments
-        (id, name, kind, method, principal, annual_rate, term_months, start_month,
+        (id, name, kind, method, principal, annual_rate, term_months, start_month, due_day,
          category, payment_method, monthly_payment, total_interest, total_payment,
          status, note, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     ).run(
       id,
       input.name,
@@ -101,6 +103,7 @@ class InstallmentRepository {
       input.annualRate,
       input.termMonths,
       input.startMonth,
+      input.dueDay,
       input.category,
       input.paymentMethod,
       input.monthlyPayment,
@@ -143,7 +146,7 @@ class InstallmentRepository {
     db.prepare(
       `UPDATE installments
        SET name = ?, kind = ?, method = ?, principal = ?, annual_rate = ?,
-           term_months = ?, start_month = ?, category = ?, payment_method = ?,
+           term_months = ?, start_month = ?, due_day = ?, category = ?, payment_method = ?,
            monthly_payment = ?, total_interest = ?, total_payment = ?,
            status = ?, note = ?, updated_at = ?
        WHERE id = ?`,
@@ -155,6 +158,7 @@ class InstallmentRepository {
       merged.annualRate,
       merged.termMonths,
       merged.startMonth,
+      merged.dueDay,
       merged.category,
       merged.paymentMethod,
       merged.monthlyPayment,
